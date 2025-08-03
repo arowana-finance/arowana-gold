@@ -1,0 +1,58 @@
+import { Provider } from 'ethers';
+import { type SignerWithAddress } from 'ethers-opt';
+import {
+    DataFeed__factory,
+    ERC20Mock__factory,
+    GoldMinter__factory,
+    GoldToken__factory,
+} from '../typechain-types/index.js';
+
+export type Runner = SignerWithAddress | Provider;
+
+export interface BaseConfig extends Record<string, string | number> {
+    chainId: number;
+    rpc: string;
+}
+
+export interface GoldConfig extends BaseConfig {
+    goldToken: string;
+    goldPriceFeed: string;
+    goldReserveFeed: string;
+    goldMinter: string;
+}
+
+export enum Networks {
+    MAINNET = 1,
+    ARBITRUM_SEPOLIA = 421614,
+}
+
+export const goldConfigs: Record<number, GoldConfig> = {
+    [Networks.ARBITRUM_SEPOLIA]: {
+        chainId: Networks.ARBITRUM_SEPOLIA,
+        rpc: 'https://sepolia-rollup.arbitrum.io/rpc',
+        goldToken: '0xfF35467D561CaD5a3d33f2eE3A4a430d53332643',
+        goldPriceFeed: '0xB1Bcf13BAe2b914b4f59e0c835B9Ecf8b606c50c',
+        goldReserveFeed: '0x0623C5E104cf1282CEB1F5f623Da994BAB6D57CD',
+        goldMinter: '0x3Fd3b42721DcC4cBc3d71291213380422A2d41a1',
+    },
+};
+
+export function getStableCoinContract(address: string, runner?: Runner) {
+    return ERC20Mock__factory.connect(address, runner);
+}
+
+export function getGoldTokenContract(address: string, runner?: Runner) {
+    return GoldToken__factory.connect(address, runner);
+}
+
+export function getGoldPriceFeedContract(address: string, runner?: Runner) {
+    return DataFeed__factory.connect(address, runner);
+}
+
+export function getGoldReserveFeedContract(address: string, runner?: Runner) {
+    return DataFeed__factory.connect(address, runner);
+}
+
+export function getGoldMinterContract(address: string, runner?: Runner) {
+    return GoldMinter__factory.connect(address, runner);
+}

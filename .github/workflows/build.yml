@@ -1,9 +1,9 @@
 name: Node.js Jobs
 
 on:
-  #push:
-  #  branches: [main]   # adjust as needed
-  #  tags: [ '*' ]      # any tag
+  push:
+    branches: [main]   # adjust as needed
+    tags: [ '*' ]      # any tag
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
