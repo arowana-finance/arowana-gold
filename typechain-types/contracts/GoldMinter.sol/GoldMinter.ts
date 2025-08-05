@@ -29,8 +29,10 @@ export interface GoldMinterInterface extends Interface {
       | "USDC"
       | "USDT"
       | "addSettler"
+      | "autoSettle"
       | "burnOrders"
       | "calculateGoldFee"
+      | "canBurn"
       | "canMint"
       | "fees"
       | "getGoldAmount"
@@ -59,6 +61,7 @@ export interface GoldMinterInterface extends Interface {
       | "slippage"
       | "tradeLevel"
       | "transferOwnership"
+      | "updateAutoSettle"
       | "updateFees"
       | "updateMinGold"
       | "updateMinGoldFee"
@@ -80,6 +83,7 @@ export interface GoldMinterInterface extends Interface {
       | "RequestMint"
       | "SettleBurn"
       | "SettleMint"
+      | "UpdateAutoSettle"
       | "UpdateFees"
       | "UpdateLevel"
       | "UpdateMinGold"
@@ -97,12 +101,20 @@ export interface GoldMinterInterface extends Interface {
     values: [AddressLike],
   ): string;
   encodeFunctionData(
+    functionFragment: "autoSettle",
+    values?: undefined,
+  ): string;
+  encodeFunctionData(
     functionFragment: "burnOrders",
     values: [BigNumberish],
   ): string;
   encodeFunctionData(
     functionFragment: "calculateGoldFee",
     values: [BigNumberish],
+  ): string;
+  encodeFunctionData(
+    functionFragment: "canBurn",
+    values: [AddressLike, BigNumberish],
   ): string;
   encodeFunctionData(
     functionFragment: "canMint",
@@ -140,6 +152,7 @@ export interface GoldMinterInterface extends Interface {
       AddressLike,
       AddressLike,
       AddressLike,
+      boolean,
     ],
   ): string;
   encodeFunctionData(functionFragment: "levels", values: [AddressLike]): string;
@@ -207,6 +220,10 @@ export interface GoldMinterInterface extends Interface {
     values: [AddressLike],
   ): string;
   encodeFunctionData(
+    functionFragment: "updateAutoSettle",
+    values?: undefined,
+  ): string;
+  encodeFunctionData(
     functionFragment: "updateFees",
     values: [BigNumberish],
   ): string;
@@ -242,11 +259,13 @@ export interface GoldMinterInterface extends Interface {
   decodeFunctionResult(functionFragment: "USDC", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "USDT", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "addSettler", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "autoSettle", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "burnOrders", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "calculateGoldFee",
     data: BytesLike,
   ): Result;
+  decodeFunctionResult(functionFragment: "canBurn", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "canMint", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "fees", data: BytesLike): Result;
   decodeFunctionResult(
@@ -315,6 +334,10 @@ export interface GoldMinterInterface extends Interface {
   decodeFunctionResult(functionFragment: "tradeLevel", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "transferOwnership",
+    data: BytesLike,
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "updateAutoSettle",
     data: BytesLike,
   ): Result;
   decodeFunctionResult(functionFragment: "updateFees", data: BytesLike): Result;
@@ -534,6 +557,18 @@ export namespace SettleMintEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
+export namespace UpdateAutoSettleEvent {
+  export type InputTuple = [settle: boolean];
+  export type OutputTuple = [settle: boolean];
+  export interface OutputObject {
+    settle: boolean;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
 export namespace UpdateFeesEvent {
   export type InputTuple = [newFees: BigNumberish];
   export type OutputTuple = [newFees: bigint];
@@ -684,6 +719,8 @@ export interface GoldMinter extends BaseContract {
     "nonpayable"
   >;
 
+  autoSettle: TypedContractMethod<[], [boolean], "view">;
+
   burnOrders: TypedContractMethod<
     [arg0: BigNumberish],
     [
@@ -703,6 +740,12 @@ export interface GoldMinter extends BaseContract {
   calculateGoldFee: TypedContractMethod<
     [_goldAmount: BigNumberish],
     [bigint],
+    "view"
+  >;
+
+  canBurn: TypedContractMethod<
+    [usdToken: AddressLike, usdAmount: BigNumberish],
+    [boolean],
     "view"
   >;
 
@@ -743,6 +786,7 @@ export interface GoldMinter extends BaseContract {
       _goldReserveFeed: AddressLike,
       _usdRecipient: AddressLike,
       _owner: AddressLike,
+      _autoSettle: boolean,
     ],
     [void],
     "nonpayable"
@@ -856,6 +900,8 @@ export interface GoldMinter extends BaseContract {
     "nonpayable"
   >;
 
+  updateAutoSettle: TypedContractMethod<[], [void], "nonpayable">;
+
   updateFees: TypedContractMethod<[_fees: BigNumberish], [void], "nonpayable">;
 
   updateMinGold: TypedContractMethod<
@@ -910,6 +956,9 @@ export interface GoldMinter extends BaseContract {
     nameOrSignature: "addSettler",
   ): TypedContractMethod<[_settler: AddressLike], [void], "nonpayable">;
   getFunction(
+    nameOrSignature: "autoSettle",
+  ): TypedContractMethod<[], [boolean], "view">;
+  getFunction(
     nameOrSignature: "burnOrders",
   ): TypedContractMethod<
     [arg0: BigNumberish],
@@ -929,6 +978,13 @@ export interface GoldMinter extends BaseContract {
   getFunction(
     nameOrSignature: "calculateGoldFee",
   ): TypedContractMethod<[_goldAmount: BigNumberish], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "canBurn",
+  ): TypedContractMethod<
+    [usdToken: AddressLike, usdAmount: BigNumberish],
+    [boolean],
+    "view"
+  >;
   getFunction(
     nameOrSignature: "canMint",
   ): TypedContractMethod<[goldAmount: BigNumberish], [boolean], "view">;
@@ -972,6 +1028,7 @@ export interface GoldMinter extends BaseContract {
       _goldReserveFeed: AddressLike,
       _usdRecipient: AddressLike,
       _owner: AddressLike,
+      _autoSettle: boolean,
     ],
     [void],
     "nonpayable"
@@ -1096,6 +1153,9 @@ export interface GoldMinter extends BaseContract {
     nameOrSignature: "transferOwnership",
   ): TypedContractMethod<[newOwner: AddressLike], [void], "nonpayable">;
   getFunction(
+    nameOrSignature: "updateAutoSettle",
+  ): TypedContractMethod<[], [void], "nonpayable">;
+  getFunction(
     nameOrSignature: "updateFees",
   ): TypedContractMethod<[_fees: BigNumberish], [void], "nonpayable">;
   getFunction(
@@ -1186,6 +1246,13 @@ export interface GoldMinter extends BaseContract {
     SettleMintEvent.InputTuple,
     SettleMintEvent.OutputTuple,
     SettleMintEvent.OutputObject
+  >;
+  getEvent(
+    key: "UpdateAutoSettle",
+  ): TypedContractEvent<
+    UpdateAutoSettleEvent.InputTuple,
+    UpdateAutoSettleEvent.OutputTuple,
+    UpdateAutoSettleEvent.OutputObject
   >;
   getEvent(
     key: "UpdateFees",
@@ -1331,6 +1398,17 @@ export interface GoldMinter extends BaseContract {
       SettleMintEvent.InputTuple,
       SettleMintEvent.OutputTuple,
       SettleMintEvent.OutputObject
+    >;
+
+    "UpdateAutoSettle(bool)": TypedContractEvent<
+      UpdateAutoSettleEvent.InputTuple,
+      UpdateAutoSettleEvent.OutputTuple,
+      UpdateAutoSettleEvent.OutputObject
+    >;
+    UpdateAutoSettle: TypedContractEvent<
+      UpdateAutoSettleEvent.InputTuple,
+      UpdateAutoSettleEvent.OutputTuple,
+      UpdateAutoSettleEvent.OutputObject
     >;
 
     "UpdateFees(uint16)": TypedContractEvent<

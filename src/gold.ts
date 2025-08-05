@@ -76,15 +76,15 @@ export async function getGoldStats({
     ]);
 
     return {
-        goldSupply: Number(formatEther(goldTokenSupply)),
-        goldPrice: Number(formatUnits(goldPriceFeedAns, DATAFEED_DECIMALS)),
-        goldReserve: Number(formatUnits(goldReserveFeedAns, DATAFEED_DECIMALS)),
-        slippage: Number(Number(slippage).toFixed(3)) / 100,
-        fees: Number(fees) / 100,
+        goldSupply: NumDecimals(formatEther(goldTokenSupply)),
+        goldPrice: NumDecimals(formatUnits(goldPriceFeedAns, DATAFEED_DECIMALS)),
+        goldReserve: NumDecimals(formatUnits(goldReserveFeedAns, DATAFEED_DECIMALS)),
+        slippage: NumDecimals(Number(slippage) / 100, 3),
+        fees: NumDecimals(Number(fees) / 100, 3),
         tradeLevel: Number(tradeLevel) as Levels,
-        minGoldAmount: Number(formatEther(minGoldAmount)),
-        minGoldFee: Number(formatEther(minGoldFee)),
-        minGoldFeeAmount: Number(formatEther(minGoldFeeAmount)),
+        minGoldAmount: NumDecimals(formatEther(minGoldAmount)),
+        minGoldFee: NumDecimals(formatEther(minGoldFee)),
+        minGoldFeeAmount: NumDecimals(formatEther(minGoldFeeAmount)),
     };
 }
 
@@ -126,6 +126,6 @@ export function calculateSwap({
     };
 }
 
-export function NumDecimals(num: number, maxDecimals = 18) {
-    return Number(num.toFixed(maxDecimals));
+export function NumDecimals(num: number | string | bigint, maxDecimals = 18) {
+    return Number(Number(num).toFixed(maxDecimals));
 }

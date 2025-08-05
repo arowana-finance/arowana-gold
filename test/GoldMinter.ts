@@ -59,6 +59,7 @@ describe('GoldMinter', function () {
             goldReserveFeed.target,
             owner.address,
             owner.address,
+            false,
         );
         await goldToken.addMinter(goldMinter.target);
 

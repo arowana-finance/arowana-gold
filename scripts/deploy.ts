@@ -131,6 +131,7 @@ async function deployGold(
                     goldReserveFeed.target,
                     owner.address,
                     owner.address,
+                    true,
                 )
             ).data,
         ),
@@ -199,7 +200,7 @@ async function requestMint(
     );
 
     // 3. Settle order
-    await logTx('RequestMint: Settle Mint', goldMinter.settleMint(0, goldAmount));
+    //await logTx('RequestMint: Settle Mint', goldMinter.settleMint(0, goldAmount));
 
     logger.debug(`RequestMint: Got ${formatEther(await goldToken.balanceOf(buyer.address))} oz`);
 }
@@ -219,7 +220,9 @@ async function requestBurn(
         goldMinter,
     });
 
-    const inputAmount = Number(formatEther(await goldToken.balanceOf(buyer.address)));
+    const goldAmount = await goldToken.balanceOf(buyer.address);
+
+    const inputAmount = Number(formatEther(goldAmount));
 
     const { outputAmount, outputOnSlippage } = calculateSwap({
         inputAmount,
@@ -227,9 +230,7 @@ async function requestBurn(
         ...goldStatus,
     });
 
-    const goldAmount = parseEther(String(inputAmount));
-
-    const usdAmount = parseUnits(String(outputAmount), USD_TOKEN_DECIMALS);
+    //const usdAmount = parseUnits(String(outputAmount), USD_TOKEN_DECIMALS);
 
     const usdAmountOnSlippage = parseUnits(String(outputOnSlippage), USD_TOKEN_DECIMALS);
 
@@ -252,7 +253,7 @@ async function requestBurn(
     );
 
     // 3. Settle order
-    await logTx('RequestBurn: Settle Burn', goldMinter.settleBurn(0, usdAmount));
+    //await logTx('RequestBurn: Settle Burn', goldMinter.settleBurn(0, usdAmount));
 
     logger.debug(`RequestBurn: Got $${formatUnits(await USDT.balanceOf(buyer.address), USD_TOKEN_DECIMALS)}`);
 }
@@ -260,13 +261,11 @@ async function requestBurn(
 async function deploy() {
     const [owner, buyer] = await getSigners();
 
-    const { USDT, USDC, goldPriceFeed, goldReserveFeed } = await getTokens(owner, buyer);
+    //const { USDT, USDC, goldPriceFeed, goldReserveFeed } = await getTokens(owner, buyer);
 
-    /**
     const { USDT, USDC } = await deployTokens(owner, buyer);
 
     const { goldPriceFeed, goldReserveFeed } = await deployGoldOracle(owner);
-    **/
 
     const { goldToken, goldMinter, goldMinterImplementation } = await deployGold(
         owner,

@@ -36,6 +36,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
     event UpdateMinGold(uint256 minGoldAmount);
     event UpdateMinGoldFee(uint256 minGoldFee);
     event UpdateMinGoldFeeAmount(uint256 minGoldFeeAmount);
+    event UpdateAutoSettle(bool settle);
 
     event UpdateTradingLevel(Levels level);
     event UpdateRecipient(address newRecipient);
@@ -68,19 +69,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
 
     mapping(address => uint8) public levels;
 
-    Levels public tradeLevel = Levels.DEFAULT;
-
-    uint16 public slippage = 500;
-    /// @dev Basis Point, 0.5%
-    uint16 public fees = 50;
-
-    uint256 public minGoldAmount = 0.02 ether;
-    uint256 public minGoldFee = 0.01 ether;
-    uint256 public minGoldFeeAmount = 1 ether;
-
-    /// @dev Address to receive USDC / USDT from customers (to buy gold and replenish reserves)
-    address public usdRecipient;
-
     struct MintOrder {
         address buyer; // Buyer address
         IERC20Exp usdToken; // USDT / USDC address
@@ -103,6 +91,21 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
     }
     BurnOrder[] public burnOrders;
 
+    Levels public tradeLevel = Levels.DEFAULT;
+
+    uint16 public slippage = 500;
+    /// @dev Basis Point, 0.5%
+    uint16 public fees = 50;
+
+    uint256 public minGoldAmount = 0.02 ether;
+    uint256 public minGoldFee = 0.01 ether;
+    uint256 public minGoldFeeAmount = 1 ether;
+
+    bool public autoSettle = true;
+
+    /// @dev Address to receive USDC / USDT from customers (to buy gold and replenish reserves)
+    address public usdRecipient;
+
     /// @dev Temporary approach to avoid stack too deep error
     function _emitInitialize() internal {
         emit UpdateSlippage(slippage);
@@ -110,6 +113,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         emit UpdateMinGold(minGoldAmount);
         emit UpdateMinGoldFee(minGoldFee);
         emit UpdateMinGoldFeeAmount(minGoldFeeAmount);
+        emit UpdateAutoSettle(autoSettle);
 
         emit UpdateTradingLevel(tradeLevel);
         emit UpdateRecipient(usdRecipient);
@@ -133,7 +137,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         address _goldPriceFeed,
         address _goldReserveFeed,
         address _usdRecipient,
-        address _owner
+        address _owner,
+        bool _autoSettle
     ) public virtual initializer {
         super._initialize(_owner);
         __ReentrancyGuard_init();
@@ -151,6 +156,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         minGoldAmount = 0.02 ether;
         minGoldFee = 0.01 ether;
         minGoldFeeAmount = 1 ether;
+        autoSettle = _autoSettle;
         //tradeLevel = Levels.APPROVED;
 
         usdRecipient = _usdRecipient;
@@ -188,6 +194,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         return goldReserves >= (tokenSupply + goldAmount);
     }
 
+    function canBurn(IERC20Exp usdToken, uint256 usdAmount) public view returns (bool) {
+        return usdToken.balanceOf(usdRecipient) >= usdAmount;
+    }
+
     /// @dev Return fee amount in Gold
     function calculateGoldFee(uint256 _goldAmount) public view returns (uint256) {
         if (_goldAmount < minGoldFeeAmount) {
@@ -214,6 +224,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
 
         usdToken.safeTransferFrom(msg.sender, usdRecipient, _usdAmount);
 
+        uint256 mintNonce = mintOrders.length;
+
         mintOrders.push(
             MintOrder({
                 buyer: msg.sender,
@@ -226,7 +238,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
             })
         );
 
-        emit RequestMint(mintOrders.length - 1, msg.sender, address(usdToken), _usdAmount, _minGoldAmount);
+        emit RequestMint(mintNonce, msg.sender, address(usdToken), _usdAmount, _minGoldAmount);
+
+        if (autoSettle && canMint(expectedOutput)) {
+            _settleMint(mintNonce, expectedOutput);
+        }
     }
 
     function requestMintPermit(
@@ -234,7 +250,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         uint256 _usdAmount,
         uint256 _minGoldAmount,
         uint256 _sigDeadline,
-        bytes calldata _signature
+        bytes memory _signature
     ) external {
         (uint8 v, bytes32 r, bytes32 s) = _signature.toVRS();
         IERC20Exp usdToken = _usdToken == address(USDT) ? USDT : USDC;
@@ -244,6 +260,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
     }
 
     function settleMint(uint256 mintNonce, uint256 goldAmount) public onlySettlers {
+        _settleMint(mintNonce, goldAmount);
+    }
+
+    function _settleMint(uint256 mintNonce, uint256 goldAmount) internal {
         require(mintNonce < mintOrders.length, 'Invalid nonce');
         require(!mintOrders[mintNonce].isSettled, 'Already settled');
 
@@ -288,6 +308,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
 
         goldToken.safeTransferFrom(msg.sender, address(this), _goldAmount);
 
+        uint256 burnNonce = burnOrders.length;
+
         burnOrders.push(
             BurnOrder({
                 seller: msg.sender,
@@ -300,7 +322,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
             })
         );
 
-        emit RequestBurn(burnOrders.length - 1, msg.sender, address(_usdToken), _goldAmount, _minUsdAmount);
+        emit RequestBurn(burnNonce, msg.sender, _usdToken, _goldAmount, _minUsdAmount);
+
+        if (autoSettle && canBurn(IERC20Exp(_usdToken), expectedOutput)) {
+            _settleBurn(burnNonce, expectedOutput);
+        }
     }
 
     function requestBurnPermit(
@@ -308,7 +334,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         uint256 _goldAmount,
         uint256 _minUsdAmount,
         uint256 _sigDeadline,
-        bytes calldata _signature
+        bytes memory _signature
     ) external {
         (uint8 v, bytes32 r, bytes32 s) = _signature.toVRS();
         goldToken.permit(msg.sender, address(this), _goldAmount, _sigDeadline, v, r, s);
@@ -317,18 +343,23 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
     }
 
     function settleBurn(uint256 burnNonce, uint256 usdAmount) public onlySettlers {
+        _settleBurn(burnNonce, usdAmount);
+    }
+
+    function _settleBurn(uint256 burnNonce, uint256 usdAmount) internal {
         require(burnNonce < burnOrders.length, 'Invalid nonce');
         require(!burnOrders[burnNonce].isSettled, 'Already settled');
 
+        IERC20Exp usdToken = burnOrders[burnNonce].usdToken;
         uint256 goldAmount = burnOrders[burnNonce].goldAmount;
-        bool success = usdAmount >= burnOrders[burnNonce].minUsdAmount;
+
+        bool success = usdAmount >= burnOrders[burnNonce].minUsdAmount && canBurn(usdToken, usdAmount);
 
         if (!success) {
             goldToken.safeTransfer(burnOrders[burnNonce].seller, goldAmount);
         } else {
             burnOrders[burnNonce].usdAmount = usdAmount;
 
-            IERC20Exp usdToken = burnOrders[burnNonce].usdToken;
             uint256 feeAmount = calculateGoldFee(goldAmount);
 
             goldToken.burn(goldAmount - feeAmount);
@@ -372,6 +403,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
     function updateMinGoldFeeAmount(uint256 _minGoldFeeAmount) external onlyOwner {
         minGoldFeeAmount = _minGoldFeeAmount;
         emit UpdateMinGoldFeeAmount(_minGoldFeeAmount);
+    }
+
+    function updateAutoSettle() external onlyOwner {
+        autoSettle = autoSettle ? false : true;
+        emit UpdateAutoSettle(autoSettle);
     }
 
     function updateTradingLevel(Levels level) external onlyOwner {
