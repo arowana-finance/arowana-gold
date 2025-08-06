@@ -26,9 +26,25 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.InitializableProxy__factory>;
     getContractFactory(
+      name: "FunctionsClient",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.FunctionsClient__factory>;
+    getContractFactory(
+      name: "DataFeedAggregator",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.DataFeedAggregator__factory>;
+    getContractFactory(
       name: "DataFeed",
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.DataFeed__factory>;
+    getContractFactory(
+      name: "BaseFunctionsConsumer",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.BaseFunctionsConsumer__factory>;
+    getContractFactory(
+      name: "AGTReserveFeed",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.AGTReserveFeed__factory>;
     getContractFactory(
       name: "Lock",
       signerOrOptions?: ethers.Signer | FactoryOptions,
@@ -181,6 +197,30 @@ declare module "hardhat/types/runtime" {
       name: "Ownable",
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.Ownable__factory>;
+    getContractFactory(
+      name: "FunctionsRequest",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.FunctionsRequest__factory>;
+    getContractFactory(
+      name: "IFunctionsRouter",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.IFunctionsRouter__factory>;
+    getContractFactory(
+      name: "IFunctionsClient",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.IFunctionsClient__factory>;
+    getContractFactory(
+      name: "AutomationCompatibleInterface",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.AutomationCompatibleInterface__factory>;
+    getContractFactory(
+      name: "AutomationCompatible",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.AutomationCompatible__factory>;
+    getContractFactory(
+      name: "AutomationBase",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.AutomationBase__factory>;
 
     getContractAt(
       name: "GoldToken",
@@ -198,10 +238,30 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer,
     ): Promise<Contracts.InitializableProxy>;
     getContractAt(
+      name: "FunctionsClient",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.FunctionsClient>;
+    getContractAt(
+      name: "DataFeedAggregator",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.DataFeedAggregator>;
+    getContractAt(
       name: "DataFeed",
       address: string | ethers.Addressable,
       signer?: ethers.Signer,
     ): Promise<Contracts.DataFeed>;
+    getContractAt(
+      name: "BaseFunctionsConsumer",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.BaseFunctionsConsumer>;
+    getContractAt(
+      name: "AGTReserveFeed",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.AGTReserveFeed>;
     getContractAt(
       name: "Lock",
       address: string | ethers.Addressable,
@@ -392,6 +452,36 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer,
     ): Promise<Contracts.Ownable>;
+    getContractAt(
+      name: "FunctionsRequest",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.FunctionsRequest>;
+    getContractAt(
+      name: "IFunctionsRouter",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.IFunctionsRouter>;
+    getContractAt(
+      name: "IFunctionsClient",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.IFunctionsClient>;
+    getContractAt(
+      name: "AutomationCompatibleInterface",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.AutomationCompatibleInterface>;
+    getContractAt(
+      name: "AutomationCompatible",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.AutomationCompatible>;
+    getContractAt(
+      name: "AutomationBase",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.AutomationBase>;
 
     deployContract(
       name: "GoldToken",
@@ -406,9 +496,25 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.InitializableProxy>;
     deployContract(
+      name: "FunctionsClient",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.FunctionsClient>;
+    deployContract(
+      name: "DataFeedAggregator",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.DataFeedAggregator>;
+    deployContract(
       name: "DataFeed",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.DataFeed>;
+    deployContract(
+      name: "BaseFunctionsConsumer",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.BaseFunctionsConsumer>;
+    deployContract(
+      name: "AGTReserveFeed",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AGTReserveFeed>;
     deployContract(
       name: "Lock",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
@@ -561,6 +667,30 @@ declare module "hardhat/types/runtime" {
       name: "Ownable",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.Ownable>;
+    deployContract(
+      name: "FunctionsRequest",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.FunctionsRequest>;
+    deployContract(
+      name: "IFunctionsRouter",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.IFunctionsRouter>;
+    deployContract(
+      name: "IFunctionsClient",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.IFunctionsClient>;
+    deployContract(
+      name: "AutomationCompatibleInterface",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AutomationCompatibleInterface>;
+    deployContract(
+      name: "AutomationCompatible",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AutomationCompatible>;
+    deployContract(
+      name: "AutomationBase",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AutomationBase>;
 
     deployContract(
       name: "GoldToken",
@@ -578,10 +708,30 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.InitializableProxy>;
     deployContract(
+      name: "FunctionsClient",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.FunctionsClient>;
+    deployContract(
+      name: "DataFeedAggregator",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.DataFeedAggregator>;
+    deployContract(
       name: "DataFeed",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.DataFeed>;
+    deployContract(
+      name: "BaseFunctionsConsumer",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.BaseFunctionsConsumer>;
+    deployContract(
+      name: "AGTReserveFeed",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AGTReserveFeed>;
     deployContract(
       name: "Lock",
       args: any[],
@@ -772,6 +922,36 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.Ownable>;
+    deployContract(
+      name: "FunctionsRequest",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.FunctionsRequest>;
+    deployContract(
+      name: "IFunctionsRouter",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.IFunctionsRouter>;
+    deployContract(
+      name: "IFunctionsClient",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.IFunctionsClient>;
+    deployContract(
+      name: "AutomationCompatibleInterface",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AutomationCompatibleInterface>;
+    deployContract(
+      name: "AutomationCompatible",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AutomationCompatible>;
+    deployContract(
+      name: "AutomationBase",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AutomationBase>;
 
     // default types
     getContractFactory(

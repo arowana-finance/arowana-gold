@@ -1,6 +1,6 @@
 {
     "name": "arowana-gold",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "Bringing humanity's most trusted value on-chain backed by physical gold",
     "license": "MIT",
     "author": "Arowana Finance",
@@ -41,6 +41,7 @@
         "coverage": "hardhat clean && yarn hardhat coverage --solcoverjs ./.solcover.cjs && istanbul-badges-readme --colors=\"red:50,yellow:60\""
     },
     "dependencies": {
+        "@chainlink/contracts": "^1.4.0",
         "@openzeppelin/contracts": "^5.4.0",
         "@openzeppelin/contracts-upgradeable": "^5.4.0",
         "ethers": "^6.15.0",
@@ -49,6 +50,7 @@
     "devDependencies": {
         "@arowanadao/eslint": "^1.0.6",
         "@arowanadao/rollup": "^1.0.6",
+        "@chainlink/functions-toolkit": "^0.3.2",
         "@nomicfoundation/hardhat-chai-matchers": "^2.0.9",
         "@nomicfoundation/hardhat-ethers": "^3.1.0",
         "@nomicfoundation/hardhat-ignition": "^0.15.13",
@@ -87,6 +89,7 @@
     "resolutions": {
         "@types/minimatch": "5.1.2",
         "cookie": "^0.7.2",
-        "fast-glob": ">=3.3.3"
+        "fast-glob": ">=3.3.3",
+        "prettier": "^3.6.2"
     }
 }
