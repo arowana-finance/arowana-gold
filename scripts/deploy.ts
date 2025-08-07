@@ -177,7 +177,7 @@ async function requestMint(
 
     const usdAmount = parseUnits(String(inputAmount), USD_TOKEN_DECIMALS);
 
-    const goldAmount = parseEther(String(outputAmount));
+    //const goldAmount = parseEther(String(outputAmount));
 
     const goldAmountOnSlippage = parseEther(String(outputOnSlippage));
 

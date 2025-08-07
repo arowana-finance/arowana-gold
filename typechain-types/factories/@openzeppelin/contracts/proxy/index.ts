@@ -2,5 +2,5 @@
 /* tslint:disable */
 /* eslint-disable */
 export * as erc1967 from "./ERC1967/index.js";
-export * as proxySol from "./Proxy.sol/index.js";
 export * as beacon from "./beacon/index.js";
+export { Proxy__factory } from "./Proxy__factory.js";
