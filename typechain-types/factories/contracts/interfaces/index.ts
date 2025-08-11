@@ -2,5 +2,5 @@
 /* tslint:disable */
 /* eslint-disable */
 export * as ierc20Sol from "./IERC20.sol/index.js";
-export { IInitializableProxy__factory } from "./IInitializableProxy__factory.js";
-export { IPriceFeed__factory } from "./IPriceFeed__factory.js";
+export * as iInitializableProxySol from "./IInitializableProxy.sol/index.js";
+export * as iPriceFeedSol from "./IPriceFeed.sol/index.js";

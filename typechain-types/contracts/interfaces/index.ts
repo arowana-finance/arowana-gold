@@ -3,5 +3,7 @@
 /* eslint-disable */
 import type * as ierc20Sol from"./IERC20.sol/index.js";
 export type { ierc20Sol };
-export type { IInitializableProxy } from "./IInitializableProxy.js";
-export type { IPriceFeed } from "./IPriceFeed.js";
+import type * as iInitializableProxySol from"./IInitializableProxy.sol/index.js";
+export type { iInitializableProxySol };
+import type * as iPriceFeedSol from"./IPriceFeed.sol/index.js";
+export type { iPriceFeedSol };
