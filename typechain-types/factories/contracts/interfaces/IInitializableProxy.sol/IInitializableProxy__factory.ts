@@ -19,7 +19,7 @@ const _abi = [
         type: "address",
       },
     ],
-    stateMutability: "nonpayable",
+    stateMutability: "view",
     type: "function",
   },
   {
@@ -45,11 +45,16 @@ const _abi = [
         type: "address",
       },
     ],
-    stateMutability: "nonpayable",
+    stateMutability: "view",
     type: "function",
   },
   {
     inputs: [
+      {
+        internalType: "string",
+        name: "_description",
+        type: "string",
+      },
       {
         internalType: "address",
         name: "newAdmin",
@@ -69,6 +74,19 @@ const _abi = [
     name: "initializeProxy",
     outputs: [],
     stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "proxyDescription",
+    outputs: [
+      {
+        internalType: "bytes",
+        name: "",
+        type: "bytes",
+      },
+    ],
+    stateMutability: "view",
     type: "function",
   },
   {

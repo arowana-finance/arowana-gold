@@ -27,6 +27,7 @@ export interface IInitializableProxyInterface extends Interface {
       | "changeAdmin"
       | "implementation"
       | "initializeProxy"
+      | "proxyDescription"
       | "upgradeToAndCall",
   ): FunctionFragment;
 
@@ -41,7 +42,11 @@ export interface IInitializableProxyInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "initializeProxy",
-    values: [AddressLike, AddressLike, BytesLike],
+    values: [string, AddressLike, AddressLike, BytesLike],
+  ): string;
+  encodeFunctionData(
+    functionFragment: "proxyDescription",
+    values?: undefined,
   ): string;
   encodeFunctionData(
     functionFragment: "upgradeToAndCall",
@@ -59,6 +64,10 @@ export interface IInitializableProxyInterface extends Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "initializeProxy",
+    data: BytesLike,
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "proxyDescription",
     data: BytesLike,
   ): Result;
   decodeFunctionResult(
@@ -110,7 +119,7 @@ export interface IInitializableProxy extends BaseContract {
     event?: TCEvent,
   ): Promise<this>;
 
-  admin: TypedContractMethod<[], [string], "nonpayable">;
+  admin: TypedContractMethod<[], [string], "view">;
 
   changeAdmin: TypedContractMethod<
     [newAdmin: AddressLike],
@@ -118,13 +127,20 @@ export interface IInitializableProxy extends BaseContract {
     "nonpayable"
   >;
 
-  implementation: TypedContractMethod<[], [string], "nonpayable">;
+  implementation: TypedContractMethod<[], [string], "view">;
 
   initializeProxy: TypedContractMethod<
-    [newAdmin: AddressLike, newImplementation: AddressLike, data: BytesLike],
+    [
+      _description: string,
+      newAdmin: AddressLike,
+      newImplementation: AddressLike,
+      data: BytesLike,
+    ],
     [void],
     "payable"
   >;
+
+  proxyDescription: TypedContractMethod<[], [string], "view">;
 
   upgradeToAndCall: TypedContractMethod<
     [newImplementation: AddressLike, data: BytesLike],
@@ -138,20 +154,28 @@ export interface IInitializableProxy extends BaseContract {
 
   getFunction(
     nameOrSignature: "admin",
-  ): TypedContractMethod<[], [string], "nonpayable">;
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "changeAdmin",
   ): TypedContractMethod<[newAdmin: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "implementation",
-  ): TypedContractMethod<[], [string], "nonpayable">;
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "initializeProxy",
   ): TypedContractMethod<
-    [newAdmin: AddressLike, newImplementation: AddressLike, data: BytesLike],
+    [
+      _description: string,
+      newAdmin: AddressLike,
+      newImplementation: AddressLike,
+      data: BytesLike,
+    ],
     [void],
     "payable"
   >;
+  getFunction(
+    nameOrSignature: "proxyDescription",
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "upgradeToAndCall",
   ): TypedContractMethod<

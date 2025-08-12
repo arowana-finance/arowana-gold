@@ -25,6 +25,8 @@ import {
 import { calculateSwap, getGoldStats } from '../src/gold.js';
 import { getGoldPrice } from './goldPrice.js';
 
+const AGT_NAME = 'Arowana Gold Token';
+const AGT_SYMBOL = 'AGT';
 const USD_TOKEN_DECIMALS = 6;
 const ORACLE_DECIMALS = 8;
 
@@ -66,18 +68,47 @@ async function deployTokens(owner: SignerWithAddress, buyer: SignerWithAddress) 
     return { USDT, USDC };
 }
 
-async function deployGoldOracle(owner: SignerWithAddress) {
+async function deployGoldToken(owner: SignerWithAddress) {
+    const goldTokenImplementation = await new GoldToken__factory(owner).deploy();
+    await logDeploy('GoldTokenImplementation', goldTokenImplementation);
+
+    const goldTokenProxy = await new InitializableProxy__factory(owner).deploy();
+    await logDeploy('GoldTokenProxy', goldTokenProxy);
+
+    await logTx(
+        'Init GoldToken',
+        goldTokenProxy.initializeProxy(
+            AGT_NAME,
+            owner.address,
+            goldTokenImplementation.target,
+            (await goldTokenImplementation.initializeGoldToken.populateTransaction(owner.address)).data,
+        ),
+    );
+
+    return {
+        goldToken: GoldToken__factory.connect(goldTokenProxy.target as string, owner),
+        goldTokenImplementation,
+    };
+}
+
+async function deployGoldOracle(owner: SignerWithAddress, goldToken: GoldToken) {
     const goldPrice = String(await getGoldPrice());
 
     const goldPriceFeed = await new DataFeed__factory(owner).deploy();
     await logDeploy('GoldPriceFeed', goldPriceFeed);
 
-    await logTx('Init GoldPriceFeed', goldPriceFeed.initialize(owner.address));
+    await logTx(
+        'Init GoldPriceFeed',
+        goldPriceFeed.initializeFeed(owner.address, goldToken.target, `${AGT_SYMBOL} / USD`),
+    );
 
     const goldReserveFeed = await new DataFeed__factory(owner).deploy();
     await logDeploy('GoldReserveFeed', goldReserveFeed);
 
-    await logTx('Init GoldReserveFeed', goldReserveFeed.initialize(owner.address));
+    await logTx(
+        'Init GoldReserveFeed',
+        goldReserveFeed.initializeFeed(owner.address, goldToken.target, `${AGT_SYMBOL} PoR`),
+    );
 
     await logTx('Set Gold Oracle Price', goldPriceFeed.updateAnswer(parseUnits(goldPrice, ORACLE_DECIMALS)));
     await logTx('Set Gold Reserve Oracle Answer', goldReserveFeed.updateAnswer(GOLD_RESERVE));
@@ -100,16 +131,14 @@ async function getTokens(owner: SignerWithAddress, buyer: SignerWithAddress) {
     return { USDT, USDC, goldPriceFeed, goldReserveFeed };
 }
 
-async function deployGold(
+async function deployGoldMinter(
     owner: SignerWithAddress,
     USDT: ERC20Mock,
     USDC: ERC20Mock,
+    goldToken: GoldToken,
     goldPriceFeed: DataFeed,
     goldReserveFeed: DataFeed,
 ) {
-    const goldToken = await new GoldToken__factory(owner).deploy();
-    await logDeploy('GoldToken', goldToken);
-
     const goldMinterImplementation = await new GoldMinter__factory(owner).deploy();
     await logDeploy('GoldMinterImplementation', goldMinterImplementation);
 
@@ -121,6 +150,7 @@ async function deployGold(
     await logTx(
         'GoldMinter: Initialize',
         goldMinterProxy.initializeProxy(
+            `${AGT_NAME} Minter`,
             owner.address,
             goldMinterImplementation.target,
             (
@@ -144,7 +174,6 @@ async function deployGold(
     await logTx('USDC: Approving GoldMinter for burning', USDC.approve(goldMinter.target, MaxUint256));
 
     return {
-        goldToken,
         goldMinter,
         goldMinterImplementation,
     };
@@ -266,12 +295,15 @@ async function deploy() {
 
     const { USDT, USDC } = await deployTokens(owner, buyer);
 
-    const { goldPriceFeed, goldReserveFeed } = await deployGoldOracle(owner);
+    const { goldToken, goldTokenImplementation } = await deployGoldToken(owner);
 
-    const { goldToken, goldMinter, goldMinterImplementation } = await deployGold(
+    const { goldPriceFeed, goldReserveFeed } = await deployGoldOracle(owner, goldToken);
+
+    const { goldMinter, goldMinterImplementation } = await deployGoldMinter(
         owner,
         USDT,
         USDC,
+        goldToken,
         goldPriceFeed,
         goldReserveFeed,
     );
@@ -284,6 +316,7 @@ async function deploy() {
         USDT: USDT.target,
         USDC: USDC.target,
         goldToken: goldToken.target,
+        goldTokenImplementation: goldTokenImplementation.target,
         goldPriceFeed: goldPriceFeed.target,
         goldReserveFeed: goldReserveFeed.target,
         goldMinter: goldMinter.target,

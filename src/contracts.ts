@@ -30,10 +30,10 @@ export const goldConfigs: Record<number, GoldConfig> = {
     [Networks.ARBITRUM_SEPOLIA]: {
         chainId: Networks.ARBITRUM_SEPOLIA,
         rpc: 'https://sepolia-rollup.arbitrum.io/rpc',
-        goldToken: '0xfF35467D561CaD5a3d33f2eE3A4a430d53332643',
+        goldToken: '0x953d0C3060944b07127FaC6DCE7a30B06a98d881',
         goldPriceFeed: '0xB1Bcf13BAe2b914b4f59e0c835B9Ecf8b606c50c',
         goldReserveFeed: '0x0623C5E104cf1282CEB1F5f623Da994BAB6D57CD',
-        goldMinter: '0x3Fd3b42721DcC4cBc3d71291213380422A2d41a1',
+        goldMinter: '0x373d4Be1BCfC77eB7804cFA62418a73f89FfC7F9',
     },
 };
 

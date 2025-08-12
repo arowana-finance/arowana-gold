@@ -5,5 +5,7 @@ import type * as access from"./access/index.js";
 export type { access };
 import type * as proxy from"./proxy/index.js";
 export type { proxy };
+import type * as token from"./token/index.js";
+export type { token };
 import type * as utils from"./utils/index.js";
 export type { utils };

@@ -3,3 +3,4 @@
 /* eslint-disable */
 export * as erc20MockSol from "./ERC20Mock.sol/index.js";
 export * as goldTokenSol from "./GoldToken.sol/index.js";
+export * as initializableErc20Sol from "./InitializableERC20.sol/index.js";

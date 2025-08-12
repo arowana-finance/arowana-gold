@@ -27,7 +27,7 @@ export interface WithSettlerInterface extends Interface {
   getFunction(
     nameOrSignature:
       | "addSettler"
-      | "initialize"
+      | "initializeSettler"
       | "owner"
       | "removeSettler"
       | "renounceOwnership"
@@ -48,7 +48,7 @@ export interface WithSettlerInterface extends Interface {
     values: [AddressLike],
   ): string;
   encodeFunctionData(
-    functionFragment: "initialize",
+    functionFragment: "initializeSettler",
     values: [AddressLike],
   ): string;
   encodeFunctionData(functionFragment: "owner", values?: undefined): string;
@@ -67,7 +67,10 @@ export interface WithSettlerInterface extends Interface {
   ): string;
 
   decodeFunctionResult(functionFragment: "addSettler", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "initialize", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "initializeSettler",
+    data: BytesLike,
+  ): Result;
   decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "removeSettler",
@@ -182,7 +185,7 @@ export interface WithSettler extends BaseContract {
     "nonpayable"
   >;
 
-  initialize: TypedContractMethod<
+  initializeSettler: TypedContractMethod<
     [_initOwner: AddressLike],
     [void],
     "nonpayable"
@@ -214,7 +217,7 @@ export interface WithSettler extends BaseContract {
     nameOrSignature: "addSettler",
   ): TypedContractMethod<[_settler: AddressLike], [void], "nonpayable">;
   getFunction(
-    nameOrSignature: "initialize",
+    nameOrSignature: "initializeSettler",
   ): TypedContractMethod<[_initOwner: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "owner",

@@ -25,7 +25,10 @@ async function getSigners() {
 describe('GoldMinter', function () {
     const minterFixture = async () => {
         const [owner, buyer] = await getSigners();
+
         const goldToken = await new GoldToken__factory(owner).deploy();
+        await goldToken.initializeGoldToken(owner.address);
+
         const USDT = await new ERC20Mock__factory(owner).deploy(
             'Tether USD',
             'USDT',
@@ -43,9 +46,17 @@ describe('GoldMinter', function () {
         await USDC.transfer(buyer.address, parseUnits('10000', 6));
 
         const goldPriceFeed = await new DataFeed__factory(owner).deploy();
-        await goldPriceFeed.initialize(owner.address);
+        await goldPriceFeed.initializeFeed(
+            owner.address,
+            goldToken.target,
+            `${await goldToken.symbol()} / USD`,
+        );
         const goldReserveFeed = await new DataFeed__factory(owner).deploy();
-        await goldReserveFeed.initialize(owner.address);
+        await goldReserveFeed.initializeFeed(
+            owner.address,
+            goldToken.target,
+            `${await goldToken.symbol()} PoR`,
+        );
 
         await goldPriceFeed.updateAnswer(GOLD_PRICE);
         await goldReserveFeed.updateAnswer(GOLD_RESERVE);

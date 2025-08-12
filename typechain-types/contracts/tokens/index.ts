@@ -5,3 +5,5 @@ import type * as erc20MockSol from"./ERC20Mock.sol/index.js";
 export type { erc20MockSol };
 import type * as goldTokenSol from"./GoldToken.sol/index.js";
 export type { goldTokenSol };
+import type * as initializableErc20Sol from"./InitializableERC20.sol/index.js";
+export type { initializableErc20Sol };

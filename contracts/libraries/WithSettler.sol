@@ -2,10 +2,9 @@
 pragma solidity ^0.8.20;
 
 import { EnumerableSet } from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
-import { Initializable } from '@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol';
-import { OwnableUpgradeable } from '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
+import { Ownable } from './Ownable.sol';
 
-contract WithSettler is Initializable, OwnableUpgradeable {
+contract WithSettler is Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     event AddSettler(address newSettler);
@@ -15,21 +14,21 @@ contract WithSettler is Initializable, OwnableUpgradeable {
     EnumerableSet.AddressSet private _settlers;
 
     modifier onlySettlers() {
-        require(_settlers.contains(_msgSender()), 'NOT_SETTLER');
+        require(_settlers.contains(msg.sender), 'NOT_SETTLER');
         _;
     }
 
-    function _initialize(address _initOwner) internal {
+    function _initializeSettler(address _initOwner) internal {
         if (_initOwner == address(0)) {
-            _initOwner = _msgSender();
+            _initOwner = msg.sender;
         }
         __Ownable_init(_initOwner);
         _settlers.add(_initOwner);
         emit AddSettler(_initOwner);
     }
 
-    function initialize(address _initOwner) public virtual initializer {
-        _initialize(_initOwner);
+    function initializeSettler(address _initOwner) public virtual initializer {
+        _initializeSettler(_initOwner);
     }
 
     function settlers() external view returns (address[] memory) {

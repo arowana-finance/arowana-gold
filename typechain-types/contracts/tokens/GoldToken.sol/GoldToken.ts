@@ -35,8 +35,9 @@ export interface GoldTokenInterface extends Interface {
       | "burnFrom"
       | "decimals"
       | "eip712Domain"
-      | "mint(address,uint256)"
-      | "mint(uint256)"
+      | "initializeGoldToken"
+      | "initializeToken"
+      | "mint"
       | "minters"
       | "name"
       | "nonces"
@@ -56,6 +57,7 @@ export interface GoldTokenInterface extends Interface {
       | "AddMinter"
       | "Approval"
       | "EIP712DomainChanged"
+      | "Initialized"
       | "OwnershipTransferred"
       | "RemoveMinter"
       | "Transfer",
@@ -92,12 +94,16 @@ export interface GoldTokenInterface extends Interface {
     values?: undefined,
   ): string;
   encodeFunctionData(
-    functionFragment: "mint(address,uint256)",
-    values: [AddressLike, BigNumberish],
+    functionFragment: "initializeGoldToken",
+    values: [AddressLike],
   ): string;
   encodeFunctionData(
-    functionFragment: "mint(uint256)",
-    values: [BigNumberish],
+    functionFragment: "initializeToken",
+    values: [string, string, BigNumberish, BigNumberish],
+  ): string;
+  encodeFunctionData(
+    functionFragment: "mint",
+    values: [AddressLike, BigNumberish],
   ): string;
   encodeFunctionData(functionFragment: "minters", values?: undefined): string;
   encodeFunctionData(functionFragment: "name", values?: undefined): string;
@@ -157,13 +163,14 @@ export interface GoldTokenInterface extends Interface {
     data: BytesLike,
   ): Result;
   decodeFunctionResult(
-    functionFragment: "mint(address,uint256)",
+    functionFragment: "initializeGoldToken",
     data: BytesLike,
   ): Result;
   decodeFunctionResult(
-    functionFragment: "mint(uint256)",
+    functionFragment: "initializeToken",
     data: BytesLike,
   ): Result;
+  decodeFunctionResult(functionFragment: "mint", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "minters", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "name", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "nonces", data: BytesLike): Result;
@@ -227,6 +234,18 @@ export namespace EIP712DomainChangedEvent {
   export type InputTuple = [];
   export type OutputTuple = [];
   export interface OutputObject {}
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace InitializedEvent {
+  export type InputTuple = [version: BigNumberish];
+  export type OutputTuple = [version: bigint];
+  export interface OutputObject {
+    version: bigint;
+  }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
   export type Log = TypedEventLog<Event>;
@@ -363,14 +382,25 @@ export interface GoldToken extends BaseContract {
     "view"
   >;
 
-  "mint(address,uint256)": TypedContractMethod<
-    [to: AddressLike, amount: BigNumberish],
+  initializeGoldToken: TypedContractMethod<
+    [_initOwner: AddressLike],
     [void],
     "nonpayable"
   >;
 
-  "mint(uint256)": TypedContractMethod<
-    [amount: BigNumberish],
+  initializeToken: TypedContractMethod<
+    [
+      name_: string,
+      symbol_: string,
+      decimals_: BigNumberish,
+      supply_: BigNumberish,
+    ],
+    [void],
+    "nonpayable"
+  >;
+
+  mint: TypedContractMethod<
+    [to: AddressLike, amount: BigNumberish],
     [void],
     "nonpayable"
   >;
@@ -485,15 +515,27 @@ export interface GoldToken extends BaseContract {
     "view"
   >;
   getFunction(
-    nameOrSignature: "mint(address,uint256)",
+    nameOrSignature: "initializeGoldToken",
+  ): TypedContractMethod<[_initOwner: AddressLike], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "initializeToken",
+  ): TypedContractMethod<
+    [
+      name_: string,
+      symbol_: string,
+      decimals_: BigNumberish,
+      supply_: BigNumberish,
+    ],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "mint",
   ): TypedContractMethod<
     [to: AddressLike, amount: BigNumberish],
     [void],
     "nonpayable"
   >;
-  getFunction(
-    nameOrSignature: "mint(uint256)",
-  ): TypedContractMethod<[amount: BigNumberish], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "minters",
   ): TypedContractMethod<[], [string[]], "view">;
@@ -573,6 +615,13 @@ export interface GoldToken extends BaseContract {
     EIP712DomainChangedEvent.OutputObject
   >;
   getEvent(
+    key: "Initialized",
+  ): TypedContractEvent<
+    InitializedEvent.InputTuple,
+    InitializedEvent.OutputTuple,
+    InitializedEvent.OutputObject
+  >;
+  getEvent(
     key: "OwnershipTransferred",
   ): TypedContractEvent<
     OwnershipTransferredEvent.InputTuple,
@@ -626,6 +675,17 @@ export interface GoldToken extends BaseContract {
       EIP712DomainChangedEvent.InputTuple,
       EIP712DomainChangedEvent.OutputTuple,
       EIP712DomainChangedEvent.OutputObject
+    >;
+
+    "Initialized(uint64)": TypedContractEvent<
+      InitializedEvent.InputTuple,
+      InitializedEvent.OutputTuple,
+      InitializedEvent.OutputObject
+    >;
+    Initialized: TypedContractEvent<
+      InitializedEvent.InputTuple,
+      InitializedEvent.OutputTuple,
+      InitializedEvent.OutputObject
     >;
 
     "OwnershipTransferred(address,address)": TypedContractEvent<

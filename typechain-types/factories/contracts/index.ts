@@ -5,6 +5,6 @@ export * as goldMinterSol from "./GoldMinter.sol/index.js";
 export * as lockSol from "./Lock.sol/index.js";
 export * as interfaces from "./interfaces/index.js";
 export * as libraries from "./libraries/index.js";
-export * as oracle from "./oracle/index.js";
+export * as oracles from "./oracles/index.js";
 export * as proxy from "./proxy/index.js";
 export * as tokens from "./tokens/index.js";

@@ -14,6 +14,10 @@ import * as Contracts from"./index.js";
 declare module "hardhat/types/runtime" {
   interface HardhatEthersHelpers extends HardhatEthersHelpersBase {
     getContractFactory(
+      name: "InitializableERC20",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.InitializableERC20__factory>;
+    getContractFactory(
       name: "GoldToken",
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.GoldToken__factory>;
@@ -46,6 +50,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.AGTReserveFeed__factory>;
     getContractFactory(
+      name: "AGTPriceFeed",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.AGTPriceFeed__factory>;
+    getContractFactory(
       name: "Lock",
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.Lock__factory>;
@@ -57,6 +65,10 @@ declare module "hardhat/types/runtime" {
       name: "SigLib",
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.SigLib__factory>;
+    getContractFactory(
+      name: "Ownable",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.Ownable__factory>;
     getContractFactory(
       name: "IPriceFeed",
       signerOrOptions?: ethers.Signer | FactoryOptions,
@@ -82,9 +94,29 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.ReentrancyGuardUpgradeable__factory>;
     getContractFactory(
+      name: "NoncesUpgradeable",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.NoncesUpgradeable__factory>;
+    getContractFactory(
+      name: "EIP712Upgradeable",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.EIP712Upgradeable__factory>;
+    getContractFactory(
       name: "ContextUpgradeable",
       signerOrOptions?: ethers.Signer | FactoryOptions,
     ): Promise<Contracts.ContextUpgradeable__factory>;
+    getContractFactory(
+      name: "ERC20PermitUpgradeable",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.ERC20PermitUpgradeable__factory>;
+    getContractFactory(
+      name: "ERC20BurnableUpgradeable",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.ERC20BurnableUpgradeable__factory>;
+    getContractFactory(
+      name: "ERC20Upgradeable",
+      signerOrOptions?: ethers.Signer | FactoryOptions,
+    ): Promise<Contracts.ERC20Upgradeable__factory>;
     getContractFactory(
       name: "Initializable",
       signerOrOptions?: ethers.Signer | FactoryOptions,
@@ -223,6 +255,11 @@ declare module "hardhat/types/runtime" {
     ): Promise<Contracts.AutomationBase__factory>;
 
     getContractAt(
+      name: "InitializableERC20",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.InitializableERC20>;
+    getContractAt(
       name: "GoldToken",
       address: string | ethers.Addressable,
       signer?: ethers.Signer,
@@ -263,6 +300,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer,
     ): Promise<Contracts.AGTReserveFeed>;
     getContractAt(
+      name: "AGTPriceFeed",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.AGTPriceFeed>;
+    getContractAt(
       name: "Lock",
       address: string | ethers.Addressable,
       signer?: ethers.Signer,
@@ -277,6 +319,11 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer,
     ): Promise<Contracts.SigLib>;
+    getContractAt(
+      name: "Ownable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.Ownable>;
     getContractAt(
       name: "IPriceFeed",
       address: string | ethers.Addressable,
@@ -308,10 +355,35 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer,
     ): Promise<Contracts.ReentrancyGuardUpgradeable>;
     getContractAt(
+      name: "NoncesUpgradeable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.NoncesUpgradeable>;
+    getContractAt(
+      name: "EIP712Upgradeable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.EIP712Upgradeable>;
+    getContractAt(
       name: "ContextUpgradeable",
       address: string | ethers.Addressable,
       signer?: ethers.Signer,
     ): Promise<Contracts.ContextUpgradeable>;
+    getContractAt(
+      name: "ERC20PermitUpgradeable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.ERC20PermitUpgradeable>;
+    getContractAt(
+      name: "ERC20BurnableUpgradeable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.ERC20BurnableUpgradeable>;
+    getContractAt(
+      name: "ERC20Upgradeable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer,
+    ): Promise<Contracts.ERC20Upgradeable>;
     getContractAt(
       name: "Initializable",
       address: string | ethers.Addressable,
@@ -484,6 +556,10 @@ declare module "hardhat/types/runtime" {
     ): Promise<Contracts.AutomationBase>;
 
     deployContract(
+      name: "InitializableERC20",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.InitializableERC20>;
+    deployContract(
       name: "GoldToken",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.GoldToken>;
@@ -516,6 +592,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.AGTReserveFeed>;
     deployContract(
+      name: "AGTPriceFeed",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AGTPriceFeed>;
+    deployContract(
       name: "Lock",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.Lock>;
@@ -527,6 +607,10 @@ declare module "hardhat/types/runtime" {
       name: "SigLib",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.SigLib>;
+    deployContract(
+      name: "Ownable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.Ownable>;
     deployContract(
       name: "IPriceFeed",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
@@ -552,9 +636,29 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.ReentrancyGuardUpgradeable>;
     deployContract(
+      name: "NoncesUpgradeable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.NoncesUpgradeable>;
+    deployContract(
+      name: "EIP712Upgradeable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.EIP712Upgradeable>;
+    deployContract(
       name: "ContextUpgradeable",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.ContextUpgradeable>;
+    deployContract(
+      name: "ERC20PermitUpgradeable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.ERC20PermitUpgradeable>;
+    deployContract(
+      name: "ERC20BurnableUpgradeable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.ERC20BurnableUpgradeable>;
+    deployContract(
+      name: "ERC20Upgradeable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.ERC20Upgradeable>;
     deployContract(
       name: "Initializable",
       signerOrOptions?: ethers.Signer | DeployContractOptions,
@@ -693,6 +797,11 @@ declare module "hardhat/types/runtime" {
     ): Promise<Contracts.AutomationBase>;
 
     deployContract(
+      name: "InitializableERC20",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.InitializableERC20>;
+    deployContract(
       name: "GoldToken",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions,
@@ -733,6 +842,11 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.AGTReserveFeed>;
     deployContract(
+      name: "AGTPriceFeed",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.AGTPriceFeed>;
+    deployContract(
       name: "Lock",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions,
@@ -747,6 +861,11 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.SigLib>;
+    deployContract(
+      name: "Ownable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.Ownable>;
     deployContract(
       name: "IPriceFeed",
       args: any[],
@@ -778,10 +897,35 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.ReentrancyGuardUpgradeable>;
     deployContract(
+      name: "NoncesUpgradeable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.NoncesUpgradeable>;
+    deployContract(
+      name: "EIP712Upgradeable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.EIP712Upgradeable>;
+    deployContract(
       name: "ContextUpgradeable",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions,
     ): Promise<Contracts.ContextUpgradeable>;
+    deployContract(
+      name: "ERC20PermitUpgradeable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.ERC20PermitUpgradeable>;
+    deployContract(
+      name: "ERC20BurnableUpgradeable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.ERC20BurnableUpgradeable>;
+    deployContract(
+      name: "ERC20Upgradeable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions,
+    ): Promise<Contracts.ERC20Upgradeable>;
     deployContract(
       name: "Initializable",
       args: any[],

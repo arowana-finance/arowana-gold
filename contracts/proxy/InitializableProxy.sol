@@ -11,6 +11,12 @@ import { ERC1967Utils, IERC1967, StorageSlot } from '@openzeppelin/contracts/pro
  * this proxy exports necessary functions to show current admin and implementation for maximal transparency
  */
 contract InitializableProxy is Proxy {
+    // keccak256(abi.encodePacked('eip1967.proxy.description')) - 1n
+    bytes32 internal constant DESCRIPTION_SLOT =
+        0xfcba12fcf625f4823c7c0c86b97ab29721afc9e784836bc00bf04553a0c8dff4;
+
+    event DescriptionChanged(string description);
+
     modifier ifAdmin() {
         require(msg.sender == _admin(), 'NOT_ADMIN');
         _;
@@ -21,6 +27,7 @@ contract InitializableProxy is Proxy {
     }
 
     function initializeProxy(
+        string memory _description,
         address newAdmin,
         address newImplementation,
         bytes memory data
@@ -28,15 +35,20 @@ contract InitializableProxy is Proxy {
         require(_implementation() == address(0) && _admin() == address(0), 'ALREADY_INITIALIZED');
         ERC1967Utils.changeAdmin(newAdmin);
         _upgradeToAndCall(newImplementation, data);
+        _setDescription(_description);
+    }
+
+    /// @dev Using internal _upgradeToAndCall to revert with implementation error data to debug error
+    function upgradeToAndCall(address newImplementation, bytes memory data) external payable virtual ifAdmin {
+        _upgradeToAndCall(newImplementation, data);
     }
 
     function changeAdmin(address newAdmin) external virtual ifAdmin {
         ERC1967Utils.changeAdmin(newAdmin);
     }
 
-    /// @dev Using internal _upgradeToAndCall to revert with implementation error data to debug error
-    function upgradeToAndCall(address newImplementation, bytes memory data) external payable virtual ifAdmin {
-        _upgradeToAndCall(newImplementation, data);
+    function changeDescription(string memory _description) external virtual ifAdmin {
+        _setDescription(_description);
     }
 
     function admin() external view returns (address) {
@@ -45,6 +57,17 @@ contract InitializableProxy is Proxy {
 
     function _admin() internal view virtual returns (address) {
         return ERC1967Utils.getAdmin();
+    }
+
+    function proxyDescription() external view virtual returns (string memory) {
+        return StorageSlot.getStringSlot(DESCRIPTION_SLOT).value;
+    }
+
+    function _setDescription(string memory _description) internal virtual {
+        if (bytes(_description).length != 0) {
+            StorageSlot.getStringSlot(DESCRIPTION_SLOT).value = _description;
+            emit DescriptionChanged(_description);
+        }
     }
 
     function implementation() external view returns (address) {

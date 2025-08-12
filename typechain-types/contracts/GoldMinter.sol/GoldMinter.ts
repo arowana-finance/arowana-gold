@@ -40,8 +40,8 @@ export interface GoldMinterInterface extends Interface {
       | "goldPriceFeed"
       | "goldReserveFeed"
       | "goldToken"
-      | "initialize"
       | "initializeGoldMinter"
+      | "initializeSettler"
       | "levels"
       | "minGoldAmount"
       | "minGoldFee"
@@ -139,10 +139,6 @@ export interface GoldMinterInterface extends Interface {
   ): string;
   encodeFunctionData(functionFragment: "goldToken", values?: undefined): string;
   encodeFunctionData(
-    functionFragment: "initialize",
-    values: [AddressLike],
-  ): string;
-  encodeFunctionData(
     functionFragment: "initializeGoldMinter",
     values: [
       AddressLike,
@@ -154,6 +150,10 @@ export interface GoldMinterInterface extends Interface {
       AddressLike,
       boolean,
     ],
+  ): string;
+  encodeFunctionData(
+    functionFragment: "initializeSettler",
+    values: [AddressLike],
   ): string;
   encodeFunctionData(functionFragment: "levels", values: [AddressLike]): string;
   encodeFunctionData(
@@ -285,9 +285,12 @@ export interface GoldMinterInterface extends Interface {
     data: BytesLike,
   ): Result;
   decodeFunctionResult(functionFragment: "goldToken", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "initialize", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "initializeGoldMinter",
+    data: BytesLike,
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "initializeSettler",
     data: BytesLike,
   ): Result;
   decodeFunctionResult(functionFragment: "levels", data: BytesLike): Result;
@@ -771,12 +774,6 @@ export interface GoldMinter extends BaseContract {
 
   goldToken: TypedContractMethod<[], [string], "view">;
 
-  initialize: TypedContractMethod<
-    [_initOwner: AddressLike],
-    [void],
-    "nonpayable"
-  >;
-
   initializeGoldMinter: TypedContractMethod<
     [
       _goldToken: AddressLike,
@@ -788,6 +785,12 @@ export interface GoldMinter extends BaseContract {
       _owner: AddressLike,
       _autoSettle: boolean,
     ],
+    [void],
+    "nonpayable"
+  >;
+
+  initializeSettler: TypedContractMethod<
+    [_initOwner: AddressLike],
     [void],
     "nonpayable"
   >;
@@ -1015,9 +1018,6 @@ export interface GoldMinter extends BaseContract {
     nameOrSignature: "goldToken",
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
-    nameOrSignature: "initialize",
-  ): TypedContractMethod<[_initOwner: AddressLike], [void], "nonpayable">;
-  getFunction(
     nameOrSignature: "initializeGoldMinter",
   ): TypedContractMethod<
     [
@@ -1033,6 +1033,9 @@ export interface GoldMinter extends BaseContract {
     [void],
     "nonpayable"
   >;
+  getFunction(
+    nameOrSignature: "initializeSettler",
+  ): TypedContractMethod<[_initOwner: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "levels",
   ): TypedContractMethod<[arg0: AddressLike], [bigint], "view">;

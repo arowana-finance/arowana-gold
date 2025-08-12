@@ -140,9 +140,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         address _owner,
         bool _autoSettle
     ) public virtual initializer {
-        super._initialize(_owner);
-        __ReentrancyGuard_init();
-
         goldToken = IERC20Mintable(_goldToken);
 
         USDT = IERC20Exp(_USDT);
@@ -161,6 +158,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
 
         usdRecipient = _usdRecipient;
 
+        __ReentrancyGuard_init();
+        _initializeSettler(_owner);
         _emitInitialize();
     }
 
