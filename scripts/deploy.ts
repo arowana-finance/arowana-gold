@@ -119,9 +119,9 @@ async function deployGoldOracle(owner: SignerWithAddress, goldToken: GoldToken) 
 async function getTokens(owner: SignerWithAddress, buyer: SignerWithAddress) {
     const { USDT, USDC } = await deployTokens(owner, buyer);
 
-    const goldPriceFeed = DataFeed__factory.connect('0xB1Bcf13BAe2b914b4f59e0c835B9Ecf8b606c50c', owner);
+    const goldPriceFeed = DataFeed__factory.connect('0xBB7D041d5E2828569f4Bd667509AE15c3862298C', owner);
 
-    const goldReserveFeed = DataFeed__factory.connect('0x0623C5E104cf1282CEB1F5f623Da994BAB6D57CD', owner);
+    const goldReserveFeed = DataFeed__factory.connect('0xa94fCB087C9E5D8480C04049D97e2fE2F3b306a0', owner);
 
     logger.debug(
         `Gold Price: $${formatUnits(await goldPriceFeed.latestAnswer(), ORACLE_DECIMALS)}/oz, ` +

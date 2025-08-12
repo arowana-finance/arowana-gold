@@ -1,6 +1,6 @@
 {
     "name": "arowana-gold",
-    "version": "1.0.5",
+    "version": "1.0.8",
     "description": "Bringing humanity's most trusted value on-chain backed by physical gold",
     "license": "MIT",
     "author": "Arowana Finance",
@@ -41,15 +41,13 @@
         "coverage": "hardhat clean && yarn hardhat coverage --solcoverjs ./.solcover.cjs && istanbul-badges-readme --colors=\"red:50,yellow:60\""
     },
     "dependencies": {
-        "@chainlink/contracts": "^1.4.0",
-        "@openzeppelin/contracts": "^5.4.0",
-        "@openzeppelin/contracts-upgradeable": "^5.4.0",
         "ethers": "^6.15.0",
         "ethers-opt": "^1.0.7"
     },
     "devDependencies": {
         "@arowanadao/eslint": "^1.0.8",
         "@arowanadao/rollup": "^1.0.8",
+        "@chainlink/contracts": "^1.4.0",
         "@chainlink/functions-toolkit": "^0.3.2",
         "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
         "@nomicfoundation/hardhat-ethers": "^3.1.0",
@@ -59,6 +57,8 @@
         "@nomicfoundation/hardhat-toolbox": "^6.1.0",
         "@nomicfoundation/hardhat-verify": "^2.1.1",
         "@nomicfoundation/ignition-core": "^0.15.13",
+        "@openzeppelin/contracts": "^5.4.0",
+        "@openzeppelin/contracts-upgradeable": "^5.4.0",
         "@typechain/ethers-v6": "npm:@arowanadao/typechain-ethers-v6@^0.5.1",
         "@typechain/hardhat": "npm:@arowanadao/typechain-hardhat@^9.1.0",
         "@types/chai": "^5.2.2",

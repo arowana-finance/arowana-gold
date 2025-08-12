@@ -12,7 +12,7 @@ import { getSigners } from 'ethers-opt/hardhat/fixtures';
 import { getBytes } from 'ethers';
 import { BaseFunctionsConsumer__factory } from '../typechain-types/index.js';
 
-const CONSUMER_ADDRESS = process.env.CONSUMER_ADDRESS || '0xB1Bcf13BAe2b914b4f59e0c835B9Ecf8b606c50c';
+const CONSUMER_ADDRESS = process.env.CONSUMER_ADDRESS || '0xBB7D041d5E2828569f4Bd667509AE15c3862298C';
 const SUBSCRIPTION_ID = Number(process.env.SUBSCRIPTION_ID || 406);
 
 const gasLimit = 300000;
