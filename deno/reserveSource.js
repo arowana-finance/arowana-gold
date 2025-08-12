@@ -1,95 +1,13 @@
 // Imports
-const ethers = await import("npm:ethers@6.15.0");
-const ethersOpt = await import("npm:ethers-opt@1.0.7");
+const ethers = await import('npm:ethers@6.15.0');
+const ethersOpt = await import('npm:ethers-opt@1.0.7');
+const arwGold = await import('npm:arowana-gold@1.0.5');
 
 const RESERVE_API = 'https://gold-reserve.arowana.finance';
 const RPC_URL = 'https://sepolia-rollup.arbitrum.io/rpc';
-const CONTRACT_ADDRESS = '0x0623C5E104cf1282CEB1F5f623Da994BAB6D57CD';
+const CONTRACT_ADDRESS = '0xa94fCB087C9E5D8480C04049D97e2fE2F3b306a0';
 const ORACLE_DECIMALS = 8;
 const oracleInterval = 3600;
-
-const abi = [
-    {
-        "inputs":[
-            
-        ],
-        "name":"latestAnswer",
-        "outputs":[
-            {
-                "internalType":"int256",
-                "name":"",
-                "type":"int256"
-            }
-        ],
-        "stateMutability":"view",
-        "type":"function"
-    },
-    {
-        "inputs":[
-            
-        ],
-        "name":"latestRound",
-        "outputs":[
-            {
-                "internalType":"uint256",
-                "name":"",
-                "type":"uint256"
-            }
-        ],
-        "stateMutability":"view",
-        "type":"function"
-    },
-    {
-        "inputs":[
-            
-        ],
-        "name":"latestRoundData",
-        "outputs":[
-            {
-                "internalType":"uint80",
-                "name":"",
-                "type":"uint80"
-            },
-            {
-                "internalType":"int256",
-                "name":"",
-                "type":"int256"
-            },
-            {
-                "internalType":"uint256",
-                "name":"",
-                "type":"uint256"
-            },
-            {
-                "internalType":"uint256",
-                "name":"",
-                "type":"uint256"
-            },
-            {
-                "internalType":"uint80",
-                "name":"",
-                "type":"uint80"
-            }
-        ],
-        "stateMutability":"view",
-        "type":"function"
-    },
-    {
-        "inputs":[
-            
-        ],
-        "name":"latestTimestamp",
-        "outputs":[
-            {
-                "internalType":"uint256",
-                "name":"",
-                "type":"uint256"
-            }
-        ],
-        "stateMutability":"view",
-        "type":"function"
-    }
-]
 
 // Chainlink Functions compatible Ethers JSON RPC provider class
 // (this is required for making Ethers RPC calls with Chainlink Functions)
@@ -101,8 +19,8 @@ class FunctionsJsonRpcProvider extends ethersOpt.Provider {
 
   async _send(payload) {
     const resp = await fetch(this.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
 
@@ -115,8 +33,8 @@ class FunctionsJsonRpcProvider extends ethersOpt.Provider {
 async function getDataFeedRound() {
     try {
         const provider = new FunctionsJsonRpcProvider(RPC_URL);
-        const dataFeedContract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
-        const [roundId, answer, , updatedAt] = await dataFeedContract.latestRoundData();
+        const dataFeed = arwGold.contracts.DataFeed__factory.connect(CONTRACT_ADDRESS, provider);
+        const [roundId, answer, , updatedAt] = await dataFeed.latestRoundData();
         
         return {
             roundId: Number(roundId),
