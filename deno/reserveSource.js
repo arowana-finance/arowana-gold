@@ -1,7 +1,7 @@
 // Imports
 const ethers = await import('npm:ethers@6.15.0');
 const ethersOpt = await import('npm:ethers-opt@1.0.7');
-const arwGold = await import('npm:arowana-gold@1.0.5');
+const arwGold = await import('npm:arowana-gold@1.0.8');
 
 const RESERVE_API = 'https://gold-reserve.arowana.finance';
 const RPC_URL = 'https://sepolia-rollup.arbitrum.io/rpc';
@@ -35,7 +35,7 @@ async function getDataFeedRound() {
         const provider = new FunctionsJsonRpcProvider(RPC_URL);
         const dataFeed = arwGold.contracts.DataFeed__factory.connect(CONTRACT_ADDRESS, provider);
         const [roundId, answer, , updatedAt] = await dataFeed.latestRoundData();
-        
+
         return {
             roundId: Number(roundId),
             answer: Number(ethers.formatUnits(answer, ORACLE_DECIMALS)),

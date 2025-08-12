@@ -1,11 +1,11 @@
 /**
  * Aims to mirror Chainlink oracle price from remote chain to home chain in regular basis
- * 
+ *
  * Because chainlink functions automation is time-based, we only check times not price changes
  */
 const ethers = await import('npm:ethers@6.15.0');
 const ethersOpt = await import('npm:ethers-opt@1.0.7');
-const arwGold = await import('npm:arowana-gold@1.0.5');
+const arwGold = await import('npm:arowana-gold@1.0.8');
 
 const REMOTE_CHAIN = 42161;
 const REMOTE_CHAIN_RPC = 'https://arb1.arbitrum.io/rpc';
@@ -48,7 +48,7 @@ async function fetchRemote() {
         const provider = new FunctionsJsonRpcProvider(REMOTE_CHAIN_RPC);
         const dataFeed = arwGold.contracts.DataFeed__factory.connect(REMOTE_CHAIN_ORACLE, provider);
         const currentTimestamp = getTimestamp();
-        
+
         const [{ chainId }, [, answer, , updatedAt]] = await Promise.all([
             provider.getNetwork(),
             dataFeed.latestRoundData(),
@@ -66,7 +66,7 @@ async function fetchRemote() {
             latestAnswer: Number(ethers.formatUnits(answer, ORACLE_DECIMALS)),
             updatedAt: Number(updatedAt),
         }
-        
+
     } catch {
         return {
             latestAnswer: 0,
