@@ -1,2 +1,3 @@
 lib/**/* linguist-vendored
+typechain-types/**/* linguist-vendored
 **/*.sol linguist-language=Solidity
