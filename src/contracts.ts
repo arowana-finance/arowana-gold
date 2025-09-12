@@ -1,13 +1,7 @@
-import { Provider } from 'ethers';
-import { type SignerWithAddress } from 'ethers-opt';
-import {
-    DataFeed__factory,
-    ERC20Mock__factory,
-    GoldMinter__factory,
-    GoldToken__factory,
-} from '../typechain-types/index.js';
+import hre from 'hardhat';
+import type { Account, PublicClient, WalletClient, Address } from 'viem';
 
-export type Runner = SignerWithAddress | Provider;
+export type Runner = Account | PublicClient | WalletClient;
 
 export interface BaseConfig extends Record<string, string | number> {
     chainId: number;
@@ -15,10 +9,10 @@ export interface BaseConfig extends Record<string, string | number> {
 }
 
 export interface GoldConfig extends BaseConfig {
-    goldToken: string;
-    goldPriceFeed: string;
-    goldReserveFeed: string;
-    goldMinter: string;
+    goldToken: Address;
+    goldPriceFeed: Address;
+    goldReserveFeed: Address;
+    goldMinter: Address;
 }
 
 export enum Networks {
@@ -37,22 +31,22 @@ export const goldConfigs: Record<number, GoldConfig> = {
     },
 };
 
-export function getStableCoinContract(address: string, runner?: Runner) {
-    return ERC20Mock__factory.connect(address, runner);
+export async function getStableCoinContract(address: Address) {
+    return hre.viem.getContractAt('ERC20Mock', address);
 }
 
-export function getGoldTokenContract(address: string, runner?: Runner) {
-    return GoldToken__factory.connect(address, runner);
+export async function getGoldTokenContract(address: Address) {
+    return hre.viem.getContractAt('GoldToken', address);
 }
 
-export function getGoldPriceFeedContract(address: string, runner?: Runner) {
-    return DataFeed__factory.connect(address, runner);
+export async function getGoldPriceFeedContract(address: Address) {
+    return hre.viem.getContractAt('DataFeed', address);
 }
 
-export function getGoldReserveFeedContract(address: string, runner?: Runner) {
-    return DataFeed__factory.connect(address, runner);
+export async function getGoldReserveFeedContract(address: Address) {
+    return hre.viem.getContractAt('DataFeed', address);
 }
 
-export function getGoldMinterContract(address: string, runner?: Runner) {
-    return GoldMinter__factory.connect(address, runner);
+export async function getGoldMinterContract(address: Address) {
+    return hre.viem.getContractAt('GoldMinter', address);
 }

@@ -1,5 +1,6 @@
 import process from 'process';
-import '@nomicfoundation/hardhat-toolbox';
+// import '@nomicfoundation/hardhat-toolbox';
+import '@nomicfoundation/hardhat-toolbox-viem';
 import '@nomicfoundation/hardhat-ethers';
 import 'hardhat-dependency-compiler';
 import 'hardhat-preprocessor';
@@ -33,7 +34,8 @@ const config = {
         develop: {
             url: process.env.RPC_URL || '',
             accounts: {
-                mnemonic: process.env.MNEMONIC || 'test test test test test test test test test test test junk',
+                mnemonic:
+                    process.env.MNEMONIC || 'test test test test test test test test test test test junk',
                 initialIndex: Number(process.env.MNEMONIC_INDEX) || 0,
             },
         },
@@ -51,7 +53,7 @@ const config = {
 
             return {
                 transform,
-            }
+            };
         },
     },
 };

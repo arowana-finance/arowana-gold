@@ -1,10 +1,8 @@
-import { formatEther, formatUnits } from 'ethers';
-import { GoldMinter, GoldToken, DataFeed } from '../typechain-types/index.js';
+import { ContractTypesMap } from 'hardhat/types/artifacts';
+import { formatEther, formatUnits } from 'viem';
 
 export const DATAFEED_DECIMALS = 8;
-
 export const GOLD_TOKEN_DECIMALS = 18;
-
 export const USD_TOKEN_MAX_DECIMALS = 6;
 
 export enum Levels {
@@ -48,10 +46,10 @@ export async function getGoldStats({
     goldReserveFeed,
     goldMinter,
 }: {
-    goldToken: GoldToken;
-    goldPriceFeed: DataFeed;
-    goldReserveFeed: DataFeed;
-    goldMinter: GoldMinter;
+    goldToken: ContractTypesMap['GoldToken'];
+    goldPriceFeed: ContractTypesMap['DataFeed'];
+    goldReserveFeed: ContractTypesMap['DataFeed'];
+    goldMinter: ContractTypesMap['GoldMinter'];
 }): Promise<GoldStats> {
     const [
         goldTokenSupply,
@@ -64,15 +62,15 @@ export async function getGoldStats({
         minGoldFee,
         minGoldFeeAmount,
     ] = await Promise.all([
-        goldToken.totalSupply(),
-        goldPriceFeed.latestAnswer(),
-        goldReserveFeed.latestAnswer(),
-        goldMinter.slippage(),
-        goldMinter.fees(),
-        goldMinter.tradeLevel(),
-        goldMinter.minGoldAmount(),
-        goldMinter.minGoldFee(),
-        goldMinter.minGoldFeeAmount(),
+        goldToken.read.totalSupply(),
+        goldPriceFeed.read.latestAnswer(),
+        goldReserveFeed.read.latestAnswer(),
+        goldMinter.read.slippage(),
+        goldMinter.read.fees(),
+        goldMinter.read.tradeLevel(),
+        goldMinter.read.minGoldAmount(),
+        goldMinter.read.minGoldFee(),
+        goldMinter.read.minGoldFeeAmount(),
     ]);
 
     return {
@@ -97,33 +95,32 @@ export function calculateSwap({
     minGoldFee,
     minGoldFeeAmount,
 }: GoldMintQuote): GoldMintQuoteResult {
-    // Output
+    // 출력 자릿수
     const outputDecimals = isBuy ? GOLD_TOKEN_DECIMALS : USD_TOKEN_MAX_DECIMALS;
+
+    // 1) 순수 계산된 출력
     const outputAmount = NumDecimals(
         isBuy ? inputAmount / goldPrice : inputAmount * goldPrice,
         outputDecimals,
     );
 
+    // 2) 수수료 기준이 되는 goldAmount
     const goldAmount = isBuy ? outputAmount : inputAmount;
-    const overMinGoldFeeAmount = goldAmount >= (minGoldFeeAmount || 0);
+    const overMinGoldFeeAmount = goldAmount >= (minGoldFeeAmount ?? 0);
 
-    // 0.5% of amount as fees if over minimum 0.01 amount
+    // 3) 수수료: 기준금액 이상이면 (amount * fees%) / 100, 아니면 최소 수수료
     const goldFees = NumDecimals(
-        overMinGoldFeeAmount ? (goldAmount * (fees || 0)) / 100 : minGoldFee || 0,
+        overMinGoldFeeAmount ? (goldAmount * (fees ?? 0)) / 100 : (minGoldFee ?? 0),
         GOLD_TOKEN_DECIMALS,
     );
-    // Output with slippages for user input
+
+    // 4) 슬리피지 반영 예상치(사용자 안내용)
     const outputOnSlippage = NumDecimals(
-        (outputAmount * (100 - (slippage || 2) * 0.5 + (fees || 0))) / 100,
+        (outputAmount * (100 - (slippage ?? 2) * 0.5 + (fees ?? 0))) / 100,
         outputDecimals,
     );
 
-    return {
-        outputAmount,
-        outputOnSlippage,
-        goldAmount,
-        goldFees,
-    };
+    return { outputAmount, outputOnSlippage, goldAmount, goldFees };
 }
 
 export function NumDecimals(num: number | string | bigint, maxDecimals = 18) {

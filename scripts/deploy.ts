@@ -1,29 +1,20 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import {
-    MaxUint256,
-    parseUnits,
-    BaseContract,
-    ContractTransactionResponse,
-    formatUnits,
-    formatEther,
-    parseEther,
-} from 'ethers';
-import { permit, type SignerWithAddress } from 'ethers-opt';
-import { getSigners } from 'ethers-opt/hardhat/fixtures';
+import hre from 'hardhat';
 import { Logger } from 'logger-chain';
 import {
-    DataFeed,
-    DataFeed__factory,
-    ERC20Mock,
-    ERC20Mock__factory,
-    GoldMinter,
-    GoldMinter__factory,
-    GoldToken,
-    GoldToken__factory,
-    InitializableProxy__factory,
-} from '../typechain-types/index.js';
+    parseUnits,
+    parseEther,
+    formatUnits,
+    formatEther,
+    maxUint256,
+    encodeFunctionData,
+    type Hex,
+    type Address,
+    WalletClient,
+} from 'viem';
+
 import { calculateSwap, getGoldStats } from '../src/gold.js';
 import { getGoldPrice } from './goldPrice.js';
+import { ContractTypesMap } from 'hardhat/types/artifacts';
 
 const AGT_NAME = 'Arowana Gold Token';
 const AGT_SYMBOL = 'AGT';
@@ -31,164 +22,292 @@ const USD_TOKEN_DECIMALS = 6;
 const ORACLE_DECIMALS = 8;
 
 const GOLD_RESERVE = parseUnits('10000', ORACLE_DECIMALS);
-
 const logger = new Logger();
 
-async function logDeploy(contractName: string, contract: BaseContract) {
-    logger.debug(
-        'Deploy',
-        `${contractName}: ${contract.target} (hash: ${(await contract.deploymentTransaction()?.wait())?.hash})`,
-    );
+/** tx logging helper (viem write 호출은 tx hash를 반환) */
+async function logTx(name: string, txHashPromise: Promise<Hex>) {
+    const publicClient = await hre.viem.getPublicClient();
+    const hash = await txHashPromise;
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    logger.debug('Tx', `${name} (hash: ${receipt.transactionHash})`);
 }
 
-async function logTx(txName: string, tx: Promise<ContractTransactionResponse>) {
-    logger.debug('Tx', `${txName} (hash: ${(await (await tx).wait())?.hash})`);
+/** 배포 logging helper */
+async function logDeploy(name: string, address: Address) {
+    logger.debug('Deploy', `${name}: ${address}`);
 }
 
-async function deployTokens(owner: SignerWithAddress, buyer: SignerWithAddress) {
-    const USDT = await new ERC20Mock__factory(owner).deploy(
+/** EIP-2612 permit 서명 (viem signTypedData 사용) */
+async function signPermitERC2612(params: {
+    token: ContractTypesMap['GoldToken'] | ContractTypesMap['ERC20Mock']; // ERC20Mock | GoldToken
+    owner: Address;
+    spender: Address;
+    value: bigint;
+    deadline: bigint;
+}) {
+    const { token, owner, spender, value, deadline } = params;
+
+    const publicClient = await hre.viem.getPublicClient();
+    const [chainId, name, nonce] = await Promise.all([
+        publicClient.getChainId(),
+        token.read.name(),
+        token.read.nonces([owner]),
+    ]);
+
+    let version = '1';
+    try {
+        const v = await (token.read as any).version?.();
+        if (typeof v === 'string') version = v;
+    } catch {}
+
+    const domain = {
+        name,
+        version,
+        chainId,
+        verifyingContract: token.address,
+    } as const;
+
+    const types = {
+        Permit: [
+            { name: 'owner', type: 'address' },
+            { name: 'spender', type: 'address' },
+            { name: 'value', type: 'uint256' },
+            { name: 'nonce', type: 'uint256' },
+            { name: 'deadline', type: 'uint256' },
+        ],
+    } as const;
+
+    const message = { owner, spender, value, nonce, deadline } as const;
+
+    const [wallet] = await hre.viem.getWalletClients();
+    const signature = await wallet.signTypedData({
+        account: owner,
+        domain: domain,
+        types,
+        primaryType: 'Permit',
+        message,
+    });
+
+    return signature as Hex;
+}
+
+/** 지갑들 가져오기 */
+async function getActors() {
+    const [owner, buyer] = await hre.viem.getWalletClients();
+    return { owner, buyer };
+}
+
+/** 토큰(USDT/USDC) 배포 + 초기분배 */
+async function deployTokens(owner: WalletClient, buyer: WalletClient) {
+    const USDT = await hre.viem.deployContract('ERC20Mock', [
         'Tether USD',
         'USDT',
         USD_TOKEN_DECIMALS,
         parseUnits('1000000', USD_TOKEN_DECIMALS),
-    );
-    await logDeploy('USDT', USDT);
+    ]);
+    await logDeploy('USDT', USDT.address);
 
-    const USDC = await new ERC20Mock__factory(owner).deploy(
+    const USDC = await hre.viem.deployContract('ERC20Mock', [
         'USD Coin',
         'USDC',
         USD_TOKEN_DECIMALS,
         parseUnits('1000000', USD_TOKEN_DECIMALS),
-    );
-    await logDeploy('USDC', USDC);
+    ]);
+    await logDeploy('USDC', USDC.address);
 
-    await logTx('Sending USDT to Buyer', USDT.transfer(buyer.address, parseUnits('200', USD_TOKEN_DECIMALS)));
-    await logTx('Sending USDC to Buyer', USDC.transfer(buyer.address, parseUnits('200', USD_TOKEN_DECIMALS)));
+    await logTx(
+        'Sending USDT to Buyer',
+        USDT.write.transfer([buyer.account!.address, parseUnits('200', USD_TOKEN_DECIMALS)], {
+            account: owner.account,
+        }),
+    );
+    await logTx(
+        'Sending USDC to Buyer',
+        USDC.write.transfer([buyer.account!.address, parseUnits('200', USD_TOKEN_DECIMALS)], {
+            account: owner.account,
+        }),
+    );
 
     return { USDT, USDC };
 }
 
-async function deployGoldToken(owner: SignerWithAddress) {
-    const goldTokenImplementation = await new GoldToken__factory(owner).deploy();
-    await logDeploy('GoldTokenImplementation', goldTokenImplementation);
+/** GoldToken(업그레이어블: Impl + Proxy + initialize) */
+async function deployGoldToken(owner: WalletClient) {
+    const goldTokenImplementation = await hre.viem.deployContract('GoldToken', []);
+    await logDeploy('GoldTokenImplementation', goldTokenImplementation.address);
 
-    const goldTokenProxy = await new InitializableProxy__factory(owner).deploy();
-    await logDeploy('GoldTokenProxy', goldTokenProxy);
+    const goldTokenProxy = await hre.viem.deployContract('InitializableProxy', []);
+    await logDeploy('GoldTokenProxy', goldTokenProxy.address);
+
+    // encode initializeGoldToken(owner)
+    const initData = encodeFunctionData({
+        abi: goldTokenImplementation.abi,
+        functionName: 'initializeGoldToken',
+        args: [owner.account!.address],
+    });
 
     await logTx(
         'Init GoldToken',
-        goldTokenProxy.initializeProxy(
-            AGT_NAME,
-            owner.address,
-            goldTokenImplementation.target,
-            (await goldTokenImplementation.initializeGoldToken.populateTransaction(owner.address)).data,
+        goldTokenProxy.write.initializeProxy(
+            [AGT_NAME, owner.account!.address, goldTokenImplementation.address, initData],
+            { account: owner.account },
         ),
     );
 
-    return {
-        goldToken: GoldToken__factory.connect(goldTokenProxy.target as string, owner),
-        goldTokenImplementation,
-    };
+    const goldToken = await hre.viem.getContractAt('GoldToken', goldTokenProxy.address);
+    return { goldToken, goldTokenImplementation, goldTokenProxy };
 }
 
-async function deployGoldOracle(owner: SignerWithAddress, goldToken: GoldToken) {
+/** 오라클(가격/리저브) 배포 및 초기화 */
+async function deployGoldOracle(owner: WalletClient, goldToken: ContractTypesMap['GoldToken']) {
     const goldPrice = String(await getGoldPrice());
 
-    const goldPriceFeed = await new DataFeed__factory(owner).deploy();
-    await logDeploy('GoldPriceFeed', goldPriceFeed);
+    const goldPriceFeed = await hre.viem.deployContract('DataFeed', []);
+    await logDeploy('GoldPriceFeed', goldPriceFeed.address);
 
     await logTx(
         'Init GoldPriceFeed',
-        goldPriceFeed.initializeFeed(owner.address, goldToken.target, `${AGT_SYMBOL} / USD`),
+        goldPriceFeed.write.initializeFeed(
+            [owner.account!.address, goldToken.address, `${AGT_SYMBOL} / USD`],
+            {
+                account: owner.account,
+            },
+        ),
     );
 
-    const goldReserveFeed = await new DataFeed__factory(owner).deploy();
-    await logDeploy('GoldReserveFeed', goldReserveFeed);
+    const goldReserveFeed = await hre.viem.deployContract('DataFeed', []);
+    await logDeploy('GoldReserveFeed', goldReserveFeed.address);
 
     await logTx(
         'Init GoldReserveFeed',
-        goldReserveFeed.initializeFeed(owner.address, goldToken.target, `${AGT_SYMBOL} PoR`),
+        goldReserveFeed.write.initializeFeed(
+            [owner.account!.address, goldToken.address, `${AGT_SYMBOL} PoR`],
+            {
+                account: owner.account,
+            },
+        ),
     );
 
-    await logTx('Set Gold Oracle Price', goldPriceFeed.updateAnswer(parseUnits(goldPrice, ORACLE_DECIMALS)));
-    await logTx('Set Gold Reserve Oracle Answer', goldReserveFeed.updateAnswer(GOLD_RESERVE));
+    await logTx(
+        'Set Gold Oracle Price',
+        goldPriceFeed.write.updateAnswer([parseUnits(goldPrice, ORACLE_DECIMALS)], {
+            account: owner.account,
+        }),
+    );
+    await logTx(
+        'Set Gold Reserve Oracle Answer',
+        goldReserveFeed.write.updateAnswer([GOLD_RESERVE], {
+            account: owner.account,
+        }),
+    );
 
     return { goldPriceFeed, goldReserveFeed };
 }
 
-async function getTokens(owner: SignerWithAddress, buyer: SignerWithAddress) {
+/** 이미 배포된 피드에 붙는 경우 (하드코드 주소) */
+async function getTokens(owner: WalletClient, buyer: WalletClient) {
     const { USDT, USDC } = await deployTokens(owner, buyer);
 
-    const goldPriceFeed = DataFeed__factory.connect('0xBB7D041d5E2828569f4Bd667509AE15c3862298C', owner);
-
-    const goldReserveFeed = DataFeed__factory.connect('0xa94fCB087C9E5D8480C04049D97e2fE2F3b306a0', owner);
+    const goldPriceFeed = await hre.viem.getContractAt(
+        'DataFeed',
+        '0xBB7D041d5E2828569f4Bd667509AE15c3862298C',
+    );
+    const goldReserveFeed = await hre.viem.getContractAt(
+        'DataFeed',
+        '0xa94fCB087C9E5D8480C04049D97e2fE2F3b306a0',
+    );
 
     logger.debug(
-        `Gold Price: $${formatUnits(await goldPriceFeed.latestAnswer(), ORACLE_DECIMALS)}/oz, ` +
-            `Gold Reserve: ${formatUnits(await goldReserveFeed.latestAnswer(), ORACLE_DECIMALS)} oz, `,
+        `Gold Price: $${formatUnits(
+            (await goldPriceFeed.read.latestAnswer()) as bigint,
+            ORACLE_DECIMALS,
+        )}/oz, ` +
+            `Gold Reserve: ${formatUnits(
+                (await goldReserveFeed.read.latestAnswer()) as bigint,
+                ORACLE_DECIMALS,
+            )} oz, `,
     );
 
     return { USDT, USDC, goldPriceFeed, goldReserveFeed };
 }
 
+/** GoldMinter(업그레이어블: Impl + Proxy + initialize) */
 async function deployGoldMinter(
-    owner: SignerWithAddress,
-    USDT: ERC20Mock,
-    USDC: ERC20Mock,
-    goldToken: GoldToken,
-    goldPriceFeed: DataFeed,
-    goldReserveFeed: DataFeed,
+    owner: WalletClient,
+    USDT: ContractTypesMap['ERC20Mock'],
+    USDC: ContractTypesMap['ERC20Mock'],
+    goldToken: ContractTypesMap['GoldToken'],
+    goldPriceFeed: ContractTypesMap['DataFeed'],
+    goldReserveFeed: ContractTypesMap['DataFeed'],
 ) {
-    const goldMinterImplementation = await new GoldMinter__factory(owner).deploy();
-    await logDeploy('GoldMinterImplementation', goldMinterImplementation);
+    const goldMinterImplementation = await hre.viem.deployContract('GoldMinter', []);
+    await logDeploy('GoldMinterImplementation', goldMinterImplementation.address);
 
-    const goldMinterProxy = await new InitializableProxy__factory(owner).deploy();
-    await logDeploy('GoldMinterProxy', goldMinterProxy);
+    const goldMinterProxy = await hre.viem.deployContract('InitializableProxy', []);
+    await logDeploy('GoldMinterProxy', goldMinterProxy.address);
 
-    const goldMinter = GoldMinter__factory.connect(goldMinterProxy.target as string, owner);
+    // encode initializeGoldMinter(...)
+    const initData = encodeFunctionData({
+        abi: goldMinterImplementation.abi,
+        functionName: 'initializeGoldMinter',
+        args: [
+            goldToken.address,
+            USDT.address,
+            USDC.address,
+            goldPriceFeed.address,
+            goldReserveFeed.address,
+            owner.account!.address,
+            owner.account!.address,
+            true,
+        ],
+    });
 
     await logTx(
         'GoldMinter: Initialize',
-        goldMinterProxy.initializeProxy(
-            `${AGT_NAME} Minter`,
-            owner.address,
-            goldMinterImplementation.target,
-            (
-                await goldMinter.initializeGoldMinter.populateTransaction(
-                    goldToken.target,
-                    USDT.target,
-                    USDC.target,
-                    goldPriceFeed.target,
-                    goldReserveFeed.target,
-                    owner.address,
-                    owner.address,
-                    true,
-                )
-            ).data,
+        goldMinterProxy.write.initializeProxy(
+            [`${AGT_NAME} Minter`, owner.account!.address, goldMinterImplementation.address, initData],
+            { account: owner.account },
         ),
     );
 
-    await logTx('GoldToken: AddMinter', goldToken.addMinter(goldMinter.target));
+    const goldMinter = await hre.viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
-    await logTx('USDT: Approving GoldMinter for burning', USDT.approve(goldMinter.target, MaxUint256));
-    await logTx('USDC: Approving GoldMinter for burning', USDC.approve(goldMinter.target, MaxUint256));
+    await logTx(
+        'GoldToken: AddMinter',
+        goldToken.write.addMinter([goldMinter.address], { account: owner.account }),
+    );
 
-    return {
-        goldMinter,
-        goldMinterImplementation,
-    };
+    await logTx(
+        'USDT: Approving GoldMinter for burning',
+        USDT.write.approve([goldMinter.address, maxUint256], {
+            account: owner.account,
+        }),
+    );
+    await logTx(
+        'USDC: Approving GoldMinter for burning',
+        USDC.write.approve([goldMinter.address, maxUint256], {
+            account: owner.account,
+        }),
+    );
+
+    return { goldMinter, goldMinterImplementation, goldMinterProxy };
 }
 
+/** Mint 요청 (Permit 사용) */
 async function requestMint(
-    buyer: SignerWithAddress,
-    USDT: ERC20Mock,
-    goldToken: GoldToken,
-    goldPriceFeed: DataFeed,
-    goldReserveFeed: DataFeed,
-    goldMinter: GoldMinter,
+    buyer: WalletClient,
+    USDT: ContractTypesMap['ERC20Mock'],
+    goldToken: ContractTypesMap['GoldToken'],
+    goldPriceFeed: ContractTypesMap['DataFeed'],
+    goldReserveFeed: ContractTypesMap['DataFeed'],
+    goldMinter: ContractTypesMap['GoldMinter'],
 ) {
-    // 1. Set buyer level to approved
-    await logTx('RequestMint: SetLevel', goldMinter.setLevel(buyer.address, 2));
+    await logTx(
+        'RequestMint: SetLevel',
+        goldMinter.write.setLevel([buyer.account!.address, 2], {
+            account: (await hre.viem.getWalletClients())[0].account,
+        }),
+    );
 
     const goldStatus = await getGoldStats({
         goldToken,
@@ -198,7 +317,6 @@ async function requestMint(
     });
 
     const inputAmount = 200;
-
     const { outputAmount, outputOnSlippage } = calculateSwap({
         inputAmount,
         isBuy: true,
@@ -206,42 +324,45 @@ async function requestMint(
     });
 
     const usdAmount = parseUnits(String(inputAmount), USD_TOKEN_DECIMALS);
-
-    //const goldAmount = parseEther(String(outputAmount));
-
     const goldAmountOnSlippage = parseEther(String(outputOnSlippage));
 
     logger.debug(
         `RequestMint: Getting ${outputAmount} (expected: ${outputOnSlippage}) oz for $${inputAmount}`,
     );
 
-    // 2. Approve and order gold
+    const signature = await signPermitERC2612({
+        token: USDT,
+        owner: buyer.account!.address,
+        spender: goldMinter.address,
+        value: usdAmount,
+        deadline: maxUint256,
+    });
+
     await logTx(
         'RequestMint: Mint',
-        goldMinter
-            .connect(buyer)
-            .requestMintPermit(
-                USDT.target,
-                usdAmount,
-                goldAmountOnSlippage,
-                MaxUint256,
-                (await permit(USDT.connect(buyer), goldMinter, usdAmount, MaxUint256)).serialized,
-            ),
+        goldMinter.write.requestMintPermit(
+            [USDT.address, usdAmount, goldAmountOnSlippage, maxUint256, signature],
+            {
+                account: buyer.account,
+            },
+        ),
     );
 
-    // 3. Settle order
-    //await logTx('RequestMint: Settle Mint', goldMinter.settleMint(0, goldAmount));
-
-    logger.debug(`RequestMint: Got ${formatEther(await goldToken.balanceOf(buyer.address))} oz`);
+    logger.debug(
+        `RequestMint: Got ${formatEther(
+            (await goldToken.read.balanceOf([buyer.account!.address])) as bigint,
+        )} oz`,
+    );
 }
 
+/** Burn 요청 (Permit 사용) */
 async function requestBurn(
-    buyer: SignerWithAddress,
-    USDT: ERC20Mock,
-    goldToken: GoldToken,
-    goldPriceFeed: DataFeed,
-    goldReserveFeed: DataFeed,
-    goldMinter: GoldMinter,
+    buyer: WalletClient,
+    USDT: ContractTypesMap['ERC20Mock'],
+    goldToken: ContractTypesMap['GoldToken'],
+    goldPriceFeed: ContractTypesMap['DataFeed'],
+    goldReserveFeed: ContractTypesMap['DataFeed'],
+    goldMinter: ContractTypesMap['GoldMinter'],
 ) {
     const goldStatus = await getGoldStats({
         goldToken,
@@ -250,8 +371,7 @@ async function requestBurn(
         goldMinter,
     });
 
-    const goldAmount = await goldToken.balanceOf(buyer.address);
-
+    const goldAmount = await goldToken.read.balanceOf([buyer.account!.address]);
     const inputAmount = Number(formatEther(goldAmount));
 
     const { outputAmount, outputOnSlippage } = calculateSwap({
@@ -260,45 +380,45 @@ async function requestBurn(
         ...goldStatus,
     });
 
-    //const usdAmount = parseUnits(String(outputAmount), USD_TOKEN_DECIMALS);
-
     const usdAmountOnSlippage = parseUnits(String(outputOnSlippage), USD_TOKEN_DECIMALS);
 
     logger.debug(
         `RequestBurn: Getting $${outputAmount} (expected: $${outputOnSlippage}) for ${inputAmount} oz`,
     );
 
-    // 2. Approve and submit sell order
+    const signature = await signPermitERC2612({
+        token: goldToken,
+        owner: buyer.account!.address,
+        spender: goldMinter.address,
+        value: goldAmount,
+        deadline: maxUint256,
+    });
+
     await logTx(
         'RequestBurn: Burn',
-        goldMinter
-            .connect(buyer)
-            .requestBurnPermit(
-                USDT.target,
-                goldAmount,
-                usdAmountOnSlippage,
-                MaxUint256,
-                (await permit(goldToken.connect(buyer), goldMinter, goldAmount, MaxUint256)).serialized,
-            ),
+        goldMinter.write.requestBurnPermit(
+            [USDT.address, goldAmount, usdAmountOnSlippage, maxUint256, signature],
+            {
+                account: buyer.account,
+            },
+        ),
     );
 
-    // 3. Settle order
-    //await logTx('RequestBurn: Settle Burn', goldMinter.settleBurn(0, usdAmount));
-
-    logger.debug(`RequestBurn: Got $${formatUnits(await USDT.balanceOf(buyer.address), USD_TOKEN_DECIMALS)}`);
+    logger.debug(
+        `RequestBurn: Got $${formatUnits(
+            (await USDT.read.balanceOf([buyer.account!.address])) as bigint,
+            USD_TOKEN_DECIMALS,
+        )}`,
+    );
 }
 
 async function deploy() {
-    const [owner, buyer] = await getSigners();
-
-    //const { USDT, USDC, goldPriceFeed, goldReserveFeed } = await getTokens(owner, buyer);
-
+    const { owner, buyer } = await getActors();
+    logger.debug('Owner', `${owner.account.address}`);
+    logger.debug('Buyer', `${buyer.account.address}`);
     const { USDT, USDC } = await deployTokens(owner, buyer);
-
     const { goldToken, goldTokenImplementation } = await deployGoldToken(owner);
-
     const { goldPriceFeed, goldReserveFeed } = await deployGoldOracle(owner, goldToken);
-
     const { goldMinter, goldMinterImplementation } = await deployGoldMinter(
         owner,
         USDT,
@@ -309,19 +429,21 @@ async function deploy() {
     );
 
     await requestMint(buyer, USDT, goldToken, goldPriceFeed, goldReserveFeed, goldMinter);
-
     await requestBurn(buyer, USDT, goldToken, goldPriceFeed, goldReserveFeed, goldMinter);
 
     console.log({
-        USDT: USDT.target,
-        USDC: USDC.target,
-        goldToken: goldToken.target,
-        goldTokenImplementation: goldTokenImplementation.target,
-        goldPriceFeed: goldPriceFeed.target,
-        goldReserveFeed: goldReserveFeed.target,
-        goldMinter: goldMinter.target,
-        goldMinterImplementation: goldMinterImplementation.target,
+        USDT: USDT.address,
+        USDC: USDC.address,
+        goldToken: goldToken.address,
+        goldTokenImplementation: goldTokenImplementation.address,
+        goldPriceFeed: goldPriceFeed.address,
+        goldReserveFeed: goldReserveFeed.address,
+        goldMinter: goldMinter.address,
+        goldMinterImplementation: goldMinterImplementation.address,
     });
 }
 
-deploy();
+deploy().catch((e) => {
+    console.error(e);
+    process.exit(1);
+});
