@@ -1,5 +1,4 @@
 import process from 'process';
-import { type HardhatUserConfig } from 'hardhat/config';
 import hardhatNetworkHelpers from '@nomicfoundation/hardhat-network-helpers';
 import hardhatToolboxViemPlugin from '@nomicfoundation/hardhat-toolbox-viem';
 import hardhatTypechain from '@nomicfoundation/hardhat-typechain';
@@ -8,7 +7,7 @@ import hardhatAbiExporter from '@solidstate/hardhat-abi-exporter';
 import hardhatMocha from '@nomicfoundation/hardhat-mocha';
 import 'dotenv/config';
 
-const config: HardhatUserConfig = {
+const config = {
     plugins: [
         hardhatToolboxViemPlugin,
         hardhatNetworkHelpers,
@@ -38,7 +37,7 @@ const config: HardhatUserConfig = {
     networks: {
         develop: {
             type: 'http',
-            url: process.env.RPC_URL || '',
+            url: process.env.RPC_URL || 'http://localhost:8545',
             accounts: {
                 mnemonic:
                     process.env.MNEMONIC || 'test test test test test test test test test test test junk',
@@ -47,7 +46,7 @@ const config: HardhatUserConfig = {
         },
         hardhat: {
             type: 'http',
-            url: process.env.RPC_URL || '',
+            url: process.env.RPC_URL || 'http://localhost:8545',
             accounts: {
                 mnemonic:
                     process.env.MNEMONIC || 'test test test test test test test test test test test junk',

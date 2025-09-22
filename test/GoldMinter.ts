@@ -1,80 +1,93 @@
-import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers.js';
 import { expect } from 'chai';
-import { MaxUint256, parseUnits, parseEther } from 'ethers';
-import { permit, type SignerWithAddress } from 'ethers-opt';
-import hre from 'hardhat';
-import {
-    DataFeed__factory,
-    ERC20Mock__factory,
-    GoldToken__factory,
-    GoldMinter__factory,
-} from '../typechain-types/index.js';
+
+import { parseUnits, parseEther, maxUint256, getAddress } from 'viem';
+import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('3362.61', 8);
-
 const GOLD_PRICE_IN_USD_TOKEN = parseUnits('3362.61', 6);
-
 const GOLD_RESERVE = parseUnits('10000', 8);
-
 const GOLD_RESERVE_IN_TOKEN = parseEther('10000');
 
-async function getSigners() {
-    return (await hre.ethers.getSigners()) as unknown as SignerWithAddress[];
-}
+const fixtureData = {
+    USDTMintAmt: 100000,
+    USDTTransferAmt: 10000,
+    USDCMintAmt: 100000,
+    USDCTransferAmt: 10000,
+    goldMintAmt: 1,
+    goldSellAmt: 1,
+};
 
 describe('GoldMinter', function () {
-    const minterFixture = async () => {
-        const [owner, buyer] = await getSigners();
+    const fixture = async () => {
+        const { owner, buyer, viem } = await getClients();
+        const { USDTMintAmt, USDCMintAmt, USDTTransferAmt, USDCTransferAmt } = fixtureData;
 
-        const goldToken = await new GoldToken__factory(owner).deploy();
-        await goldToken.initializeGoldToken(owner.address);
+        const goldToken = await viem.deployContract('GoldToken');
+        await goldToken.write.initializeGoldToken([owner.account.address], {
+            account: owner.account,
+        });
 
-        const USDT = await new ERC20Mock__factory(owner).deploy(
+        const USDT = await viem.deployContract('ERC20Mock', [
             'Tether USD',
             'USDT',
             6,
-            parseUnits('100000', 6),
-        );
-        const USDC = await new ERC20Mock__factory(owner).deploy(
+            parseUnits(String(USDTMintAmt), 6),
+        ]);
+        const USDC = await viem.deployContract('ERC20Mock', [
             'USD Coin',
             'USDC',
             6,
-            parseUnits('100000', 6),
+            parseUnits(String(USDCMintAmt), 6),
+        ]);
+
+        await USDT.write.transfer([buyer.account.address, parseUnits(String(USDTTransferAmt), 6)], {
+            account: owner.account,
+        });
+        await USDC.write.transfer([buyer.account.address, parseUnits(String(USDCTransferAmt), 6)], {
+            account: owner.account,
+        });
+
+        const goldPriceFeed = await viem.deployContract('DataFeed');
+        await goldPriceFeed.write.initializeFeed(
+            [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} / USD`],
+            { account: owner.account },
         );
 
-        await USDT.transfer(buyer.address, parseUnits('10000', 6));
-        await USDC.transfer(buyer.address, parseUnits('10000', 6));
-
-        const goldPriceFeed = await new DataFeed__factory(owner).deploy();
-        await goldPriceFeed.initializeFeed(
-            owner.address,
-            goldToken.target,
-            `${await goldToken.symbol()} / USD`,
-        );
-        const goldReserveFeed = await new DataFeed__factory(owner).deploy();
-        await goldReserveFeed.initializeFeed(
-            owner.address,
-            goldToken.target,
-            `${await goldToken.symbol()} PoR`,
+        const goldReserveFeed = await viem.deployContract('DataFeed');
+        await goldReserveFeed.write.initializeFeed(
+            [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} PoR`],
+            { account: owner.account },
         );
 
-        await goldPriceFeed.updateAnswer(GOLD_PRICE);
-        await goldReserveFeed.updateAnswer(GOLD_RESERVE);
+        await goldPriceFeed.write.updateAnswer([GOLD_PRICE], {
+            account: owner.account,
+        });
+        await goldReserveFeed.write.updateAnswer([GOLD_RESERVE], {
+            account: owner.account,
+        });
 
-        const goldMinter = await new GoldMinter__factory(owner).deploy();
-        await goldMinter.initializeGoldMinter(
-            goldToken.target,
-            USDT.target,
-            USDC.target,
-            goldPriceFeed.target,
-            goldReserveFeed.target,
-            owner.address,
-            owner.address,
-            false,
+        const goldMinter = await viem.deployContract('GoldMinter');
+        await goldMinter.write.initializeGoldMinter(
+            [
+                goldToken.address,
+                USDT.address,
+                USDC.address,
+                goldPriceFeed.address,
+                goldReserveFeed.address,
+                owner.account.address,
+                owner.account.address,
+                false,
+            ],
+            { account: owner.account },
         );
-        await goldToken.addMinter(goldMinter.target);
+
+        await goldToken.write.addMinter([goldMinter.address], {
+            account: owner.account,
+        });
 
         return {
+            owner,
+            buyer,
             goldToken,
             USDT,
             USDC,
@@ -85,108 +98,123 @@ describe('GoldMinter', function () {
     };
 
     it('deploy', async function () {
-        const { goldToken, USDT, USDC, goldPriceFeed, goldReserveFeed, goldMinter } =
-            await loadFixture(minterFixture);
+        const { goldToken, USDT, USDC, goldPriceFeed, goldReserveFeed, goldMinter } = await fixture();
 
-        expect(await goldMinter.goldToken()).to.equal(goldToken.target);
-        expect(await goldMinter.USDT()).to.equal(USDT.target);
-        expect(await goldMinter.USDC()).to.equal(USDC.target);
+        expect(await goldMinter.read.goldToken()).to.equal(getAddress(goldToken.address));
+        expect(await goldMinter.read.USDT()).to.equal(getAddress(USDT.address));
+        expect(await goldMinter.read.USDC()).to.equal(getAddress(USDC.address));
 
-        expect(await goldPriceFeed.latestAnswer()).to.equal(GOLD_PRICE);
-        expect(await goldReserveFeed.latestAnswer()).to.equal(GOLD_RESERVE);
+        expect(await goldPriceFeed.read.latestAnswer()).to.equal(GOLD_PRICE);
+        expect(await goldReserveFeed.read.latestAnswer()).to.equal(GOLD_RESERVE);
 
-        expect(await goldMinter.slippage()).to.equal(500);
-        expect(await goldMinter.fees()).to.equal(50);
+        expect(await goldMinter.read.slippage()).to.equal(500);
+        expect(await goldMinter.read.fees()).to.equal(50);
     });
 
     it('getGoldAmount', async function () {
-        const { USDT, goldMinter } = await loadFixture(minterFixture);
+        const { USDT, goldMinter } = await fixture();
 
-        // One Gold worth USD => should equal one gold
-        expect(await goldMinter.getGoldAmount(USDT.target, GOLD_PRICE_IN_USD_TOKEN)).to.equal(
+        expect(await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN])).to.equal(
             parseEther('1'),
         );
 
-        expect(await goldMinter.getGoldAmount(USDT.target, GOLD_PRICE_IN_USD_TOKEN / 2n)).to.equal(
+        expect(await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN / 2n])).to.equal(
             parseEther('1') / 2n,
         );
     });
 
     it('getUsdAmount', async function () {
-        const { USDT, goldMinter } = await loadFixture(minterFixture);
+        const { USDT, goldMinter } = await fixture();
 
-        expect(await goldMinter.getUsdAmount(USDT.target, parseEther('1'))).to.equal(GOLD_PRICE_IN_USD_TOKEN);
+        expect(await goldMinter.read.getUsdAmount([USDT.address, parseEther('1')])).to.equal(
+            GOLD_PRICE_IN_USD_TOKEN,
+        );
 
-        expect(await goldMinter.getUsdAmount(USDT.target, parseEther('1') / 2n)).to.equal(
+        expect(await goldMinter.read.getUsdAmount([USDT.address, parseEther('1') / 2n])).to.equal(
             GOLD_PRICE_IN_USD_TOKEN / 2n,
         );
     });
 
     it('canMint', async function () {
-        const { goldMinter } = await loadFixture(minterFixture);
+        const { goldMinter } = await fixture();
 
-        expect(await goldMinter.canMint(GOLD_RESERVE_IN_TOKEN)).to.be.true;
-        expect(await goldMinter.canMint(GOLD_RESERVE_IN_TOKEN + 1n)).to.be.false;
+        expect(await goldMinter.read.canMint([GOLD_RESERVE_IN_TOKEN])).to.be.true;
+
+        expect(await goldMinter.read.canMint([GOLD_RESERVE_IN_TOKEN + 1n])).to.be.false;
     });
 
-    // Try buying gold with given Tether
-    it('requestMint', async function () {
-        const [, buyer] = await getSigners();
+    it('requestMint (with permit)', async function () {
+        const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
+        const { goldMintAmt } = fixtureData;
 
-        const { USDT, goldToken, goldMinter } = await loadFixture(minterFixture);
+        await goldMinter.write.setLevel([buyer.account.address, 2], {
+            account: owner.account,
+        });
 
-        // 1. Set buyer level to approved
-        await goldMinter.setLevel(buyer.address, 2);
+        const signature = await signPermitERC2612({
+            token: USDT,
+            owner: buyer,
+            spender: goldMinter.address,
+            value: GOLD_PRICE_IN_USD_TOKEN,
+            deadline: maxUint256,
+        });
 
-        // 2. Approve Buyer's USDT to spend
-        const { serialized } = await permit(
-            USDT.connect(buyer),
-            goldMinter,
-            GOLD_PRICE_IN_USD_TOKEN,
-            MaxUint256,
+        await goldMinter.write.requestMintPermit(
+            [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(goldMintAmt)), maxUint256, signature],
+            { account: buyer.account },
         );
 
-        // 3. Order Gold using Buyer's USDT (USDT is deposited on the contract)
-        await goldMinter
-            .connect(buyer)
-            .requestMintPermit(USDT.target, GOLD_PRICE_IN_USD_TOKEN, parseEther('1'), MaxUint256, serialized);
+        await goldMinter.write.settleMint([0n, parseEther(String(goldMintAmt))], {
+            account: owner.account,
+        });
 
-        // 4. Settle order
-        await goldMinter.settleMint(0n, parseEther('1'));
+        const feeBps = await goldMinter.read.fees();
+        const amountExFee = (parseEther(String(goldMintAmt)) * (10000n - BigInt(String(feeBps)))) / 10000n;
 
-        // 5. Check balance (excluding 0.5% default fee)
-        const amountExFee = (parseEther('1') * (10000n - (await goldMinter.fees()))) / 10000n;
-
-        expect(await goldToken.balanceOf(buyer.address)).equals(amountExFee);
+        expect(await goldToken.read.balanceOf([buyer.account.address])).to.equal(amountExFee);
     });
 
-    // Try selling gold
     it('requestBurn', async function () {
-        const [, buyer] = await getSigners();
+        const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
+        const { goldSellAmt } = fixtureData;
 
-        // 0. Buy gold first
-        const { USDT, goldToken, goldMinter } = await loadFixture(minterFixture);
-        await goldMinter.setLevel(buyer.address, 2);
-        await USDT.connect(buyer).approve(goldMinter.target, MaxUint256);
-        await goldMinter.connect(buyer).requestMint(USDT.target, GOLD_PRICE_IN_USD_TOKEN, parseEther('1'));
-        await goldMinter.settleMint(0n, parseEther('1'));
+        await goldMinter.write.setLevel([buyer.account.address, 2], {
+            account: owner.account,
+        });
+        await USDT.write.approve([goldMinter.address, maxUint256], {
+            account: buyer.account,
+        });
+        await goldMinter.write.requestMint(
+            [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(goldSellAmt))],
+            {
+                account: buyer.account,
+            },
+        );
+        await goldMinter.write.settleMint([0n, parseEther(String(goldSellAmt))], {
+            account: owner.account,
+        });
 
-        const amountExFee = await goldToken.balanceOf(buyer.address);
-        const expectedOutput = await goldMinter.getUsdAmount(USDT.target, amountExFee);
+        const amountExFee = await goldToken.read.balanceOf([buyer.account.address]);
 
-        // 1. Approve Gold to spend
-        await goldToken.connect(buyer).approve(goldMinter.target, MaxUint256);
+        const expectedOutput = await goldMinter.read.getUsdAmount([USDT.address, amountExFee]);
 
-        // 2. Make sell order of bought Gold tokens
-        await goldMinter.connect(buyer).requestBurn(USDT.target, amountExFee, expectedOutput);
+        await goldToken.write.approve([goldMinter.address, maxUint256], {
+            account: buyer.account,
+        });
 
-        // 3. Approve from USD treasury account to pay
-        await USDT.approve(goldMinter.target, expectedOutput);
+        await goldMinter.write.requestBurn([USDT.address, amountExFee, expectedOutput], {
+            account: buyer.account,
+        });
 
-        // 4. Settle order
-        await goldMinter.settleBurn(0n, expectedOutput);
+        await USDT.write.approve([goldMinter.address, expectedOutput], {
+            account: owner.account,
+        });
 
-        expect(await goldToken.balanceOf(buyer.address)).equals(0n);
-        expect(await goldToken.balanceOf(goldMinter.target)).equals(0n);
+        await goldMinter.write.settleBurn([0n, expectedOutput], {
+            account: owner.account,
+        });
+
+        expect(await goldToken.read.balanceOf([buyer.account.address])).to.equal(0n);
+        expect(await goldToken.read.balanceOf([goldMinter.address])).to.equal(0n);
     });
 });
