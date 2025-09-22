@@ -28,13 +28,11 @@ export async function getGoldPrice(): Promise<number> {
         transport: http(ETH_RPC),
     });
 
-    // Chainlink Aggregator 최신 데이터 읽기
     const [roundId, answer] = (await client.readContract({
         address: CHAINLINK_XAU_USD_FEED,
         abi: aggregatorV3InterfaceABI,
         functionName: 'latestRoundData',
     })) as [bigint, bigint, bigint, bigint, bigint];
 
-    // Chainlink XAU/USD 피드는 8 decimals
     return Number(formatUnits(answer, 8));
 }

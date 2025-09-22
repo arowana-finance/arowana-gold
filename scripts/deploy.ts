@@ -1,4 +1,4 @@
-import hre from 'hardhat';
+import hre, { network } from 'hardhat';
 import { Logger } from 'logger-chain';
 import {
     parseUnits,
@@ -16,6 +16,8 @@ import { calculateSwap, getGoldStats } from '../src/gold.js';
 import { getGoldPrice } from './goldPrice.js';
 import { ContractTypesMap } from 'hardhat/types/artifacts';
 
+const { viem } = await network.connect();
+
 const AGT_NAME = 'Arowana Gold Token';
 const AGT_SYMBOL = 'AGT';
 const USD_TOKEN_DECIMALS = 6;
@@ -24,20 +26,18 @@ const ORACLE_DECIMALS = 8;
 const GOLD_RESERVE = parseUnits('10000', ORACLE_DECIMALS);
 const logger = new Logger();
 
-/** tx logging helper (viem write 호출은 tx hash를 반환) */
 async function logTx(name: string, txHashPromise: Promise<Hex>) {
-    const publicClient = await hre.viem.getPublicClient();
+    const publicClient = await viem.getPublicClient();
     const hash = await txHashPromise;
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     logger.debug('Tx', `${name} (hash: ${receipt.transactionHash})`);
 }
 
-/** 배포 logging helper */
 async function logDeploy(name: string, address: Address) {
     logger.debug('Deploy', `${name}: ${address}`);
 }
 
-/** EIP-2612 permit 서명 (viem signTypedData 사용) */
+/** EIP-2612 permit signature (using viem signTypedData) */
 async function signPermitERC2612(params: {
     token: ContractTypesMap['GoldToken'] | ContractTypesMap['ERC20Mock']; // ERC20Mock | GoldToken
     owner: Address;
@@ -47,7 +47,7 @@ async function signPermitERC2612(params: {
 }) {
     const { token, owner, spender, value, deadline } = params;
 
-    const publicClient = await hre.viem.getPublicClient();
+    const publicClient = await viem.getPublicClient();
     const [chainId, name, nonce] = await Promise.all([
         publicClient.getChainId(),
         token.read.name(),
@@ -79,7 +79,7 @@ async function signPermitERC2612(params: {
 
     const message = { owner, spender, value, nonce, deadline } as const;
 
-    const [wallet] = await hre.viem.getWalletClients();
+    const [wallet] = await viem.getWalletClients();
     const signature = await wallet.signTypedData({
         account: owner,
         domain: domain,
@@ -91,15 +91,15 @@ async function signPermitERC2612(params: {
     return signature as Hex;
 }
 
-/** 지갑들 가져오기 */
+/** fetch wallets */
 async function getActors() {
-    const [owner, buyer] = await hre.viem.getWalletClients();
+    const [owner, buyer] = await viem.getWalletClients();
     return { owner, buyer };
 }
 
-/** 토큰(USDT/USDC) 배포 + 초기분배 */
+/** deploy tokens (USDT/USDC) + initial distribution */
 async function deployTokens(owner: WalletClient, buyer: WalletClient) {
-    const USDT = await hre.viem.deployContract('ERC20Mock', [
+    const USDT = await viem.deployContract('ERC20Mock', [
         'Tether USD',
         'USDT',
         USD_TOKEN_DECIMALS,
@@ -107,7 +107,7 @@ async function deployTokens(owner: WalletClient, buyer: WalletClient) {
     ]);
     await logDeploy('USDT', USDT.address);
 
-    const USDC = await hre.viem.deployContract('ERC20Mock', [
+    const USDC = await viem.deployContract('ERC20Mock', [
         'USD Coin',
         'USDC',
         USD_TOKEN_DECIMALS,
@@ -131,15 +131,14 @@ async function deployTokens(owner: WalletClient, buyer: WalletClient) {
     return { USDT, USDC };
 }
 
-/** GoldToken(업그레이어블: Impl + Proxy + initialize) */
+/** GoldToken (upgradeable: Impl + Proxy + initialize) */
 async function deployGoldToken(owner: WalletClient) {
-    const goldTokenImplementation = await hre.viem.deployContract('GoldToken', []);
+    const goldTokenImplementation = await viem.deployContract('GoldToken', []);
     await logDeploy('GoldTokenImplementation', goldTokenImplementation.address);
 
-    const goldTokenProxy = await hre.viem.deployContract('InitializableProxy', []);
+    const goldTokenProxy = await viem.deployContract('InitializableProxy', []);
     await logDeploy('GoldTokenProxy', goldTokenProxy.address);
 
-    // encode initializeGoldToken(owner)
     const initData = encodeFunctionData({
         abi: goldTokenImplementation.abi,
         functionName: 'initializeGoldToken',
@@ -154,15 +153,15 @@ async function deployGoldToken(owner: WalletClient) {
         ),
     );
 
-    const goldToken = await hre.viem.getContractAt('GoldToken', goldTokenProxy.address);
+    const goldToken = await viem.getContractAt('GoldToken', goldTokenProxy.address);
     return { goldToken, goldTokenImplementation, goldTokenProxy };
 }
 
-/** 오라클(가격/리저브) 배포 및 초기화 */
+/** deploy and initialize oracles (price/reserve) */
 async function deployGoldOracle(owner: WalletClient, goldToken: ContractTypesMap['GoldToken']) {
     const goldPrice = String(await getGoldPrice());
 
-    const goldPriceFeed = await hre.viem.deployContract('DataFeed', []);
+    const goldPriceFeed = await viem.deployContract('DataFeed', []);
     await logDeploy('GoldPriceFeed', goldPriceFeed.address);
 
     await logTx(
@@ -175,7 +174,7 @@ async function deployGoldOracle(owner: WalletClient, goldToken: ContractTypesMap
         ),
     );
 
-    const goldReserveFeed = await hre.viem.deployContract('DataFeed', []);
+    const goldReserveFeed = await viem.deployContract('DataFeed', []);
     await logDeploy('GoldReserveFeed', goldReserveFeed.address);
 
     await logTx(
@@ -204,15 +203,12 @@ async function deployGoldOracle(owner: WalletClient, goldToken: ContractTypesMap
     return { goldPriceFeed, goldReserveFeed };
 }
 
-/** 이미 배포된 피드에 붙는 경우 (하드코드 주소) */
+/** attach to an already deployed feed (hardcoded address) */
 async function getTokens(owner: WalletClient, buyer: WalletClient) {
     const { USDT, USDC } = await deployTokens(owner, buyer);
 
-    const goldPriceFeed = await hre.viem.getContractAt(
-        'DataFeed',
-        '0xBB7D041d5E2828569f4Bd667509AE15c3862298C',
-    );
-    const goldReserveFeed = await hre.viem.getContractAt(
+    const goldPriceFeed = await viem.getContractAt('DataFeed', '0xBB7D041d5E2828569f4Bd667509AE15c3862298C');
+    const goldReserveFeed = await viem.getContractAt(
         'DataFeed',
         '0xa94fCB087C9E5D8480C04049D97e2fE2F3b306a0',
     );
@@ -231,7 +227,7 @@ async function getTokens(owner: WalletClient, buyer: WalletClient) {
     return { USDT, USDC, goldPriceFeed, goldReserveFeed };
 }
 
-/** GoldMinter(업그레이어블: Impl + Proxy + initialize) */
+/** GoldMinter (upgradeable: Impl + Proxy + initialize) */
 async function deployGoldMinter(
     owner: WalletClient,
     USDT: ContractTypesMap['ERC20Mock'],
@@ -240,13 +236,12 @@ async function deployGoldMinter(
     goldPriceFeed: ContractTypesMap['DataFeed'],
     goldReserveFeed: ContractTypesMap['DataFeed'],
 ) {
-    const goldMinterImplementation = await hre.viem.deployContract('GoldMinter', []);
+    const goldMinterImplementation = await viem.deployContract('GoldMinter', []);
     await logDeploy('GoldMinterImplementation', goldMinterImplementation.address);
 
-    const goldMinterProxy = await hre.viem.deployContract('InitializableProxy', []);
+    const goldMinterProxy = await viem.deployContract('InitializableProxy', []);
     await logDeploy('GoldMinterProxy', goldMinterProxy.address);
 
-    // encode initializeGoldMinter(...)
     const initData = encodeFunctionData({
         abi: goldMinterImplementation.abi,
         functionName: 'initializeGoldMinter',
@@ -270,7 +265,7 @@ async function deployGoldMinter(
         ),
     );
 
-    const goldMinter = await hre.viem.getContractAt('GoldMinter', goldMinterProxy.address);
+    const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
     await logTx(
         'GoldToken: AddMinter',
@@ -293,7 +288,7 @@ async function deployGoldMinter(
     return { goldMinter, goldMinterImplementation, goldMinterProxy };
 }
 
-/** Mint 요청 (Permit 사용) */
+/** Mint request (using Permit) */
 async function requestMint(
     buyer: WalletClient,
     USDT: ContractTypesMap['ERC20Mock'],
@@ -305,7 +300,7 @@ async function requestMint(
     await logTx(
         'RequestMint: SetLevel',
         goldMinter.write.setLevel([buyer.account!.address, 2], {
-            account: (await hre.viem.getWalletClients())[0].account,
+            account: (await viem.getWalletClients())[0].account,
         }),
     );
 
@@ -355,7 +350,7 @@ async function requestMint(
     );
 }
 
-/** Burn 요청 (Permit 사용) */
+/** Burn request (using Permit) */
 async function requestBurn(
     buyer: WalletClient,
     USDT: ContractTypesMap['ERC20Mock'],

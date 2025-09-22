@@ -1,6 +1,8 @@
-import hre from 'hardhat';
+import { network } from 'hardhat';
 import { Logger } from 'logger-chain';
 import { zeroAddress, parseGwei, encodeFunctionData, type Address, type Hex, type WalletClient } from 'viem';
+
+const { viem } = await network.connect();
 
 const AGT_SYMBOL = 'AGT';
 const AGT_ADDRESS: Address = zeroAddress;
@@ -14,26 +16,22 @@ const UPDATE_INTERVAL = 3600;
 
 const logger = new Logger();
 
-/** tx logging helper (viem write는 tx hash 반환) */
 async function logTx(name: string, txHashPromise: Promise<Hex>) {
-    const publicClient = await hre.viem.getPublicClient();
+    const publicClient = await viem.getPublicClient();
     const hash = await txHashPromise;
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     logger.debug('Tx', `${name} (hash: ${receipt.transactionHash})`);
 }
 
-/** 배포 logging helper */
 async function logDeploy(name: string, address: Address) {
     logger.debug('Deploy', `${name}: ${address}`);
 }
 
 async function deployReserveFeed(owner: WalletClient) {
-    // 1) Implementation 배포
-    const agtReserveFeedImplementation = await hre.viem.deployContract('AGTReserveFeed', []);
+    const agtReserveFeedImplementation = await viem.deployContract('AGTReserveFeed', []);
     await logDeploy('AGTReserveFeedImplementation', agtReserveFeedImplementation.address);
 
-    // 2) Proxy 배포
-    const agtReserveFeedProxy = await hre.viem.deployContract('InitializableProxy', []);
+    const agtReserveFeedProxy = await viem.deployContract('InitializableProxy', []);
     await logDeploy('AGTReserveFeedProxy', agtReserveFeedProxy.address);
 
     const initData = encodeFunctionData({
@@ -53,7 +51,6 @@ async function deployReserveFeed(owner: WalletClient) {
         ],
     });
 
-    // 4) Proxy 초기화
     await logTx(
         'Initialize Reserve Feed',
         agtReserveFeedProxy.write.initializeProxy(
@@ -67,8 +64,7 @@ async function deployReserveFeed(owner: WalletClient) {
         ),
     );
 
-    // 프록시 주소에 실제 구현 ABI로 붙기
-    const agtReserveFeed = await hre.viem.getContractAt('AGTReserveFeed', agtReserveFeedProxy.address);
+    const agtReserveFeed = await viem.getContractAt('AGTReserveFeed', agtReserveFeedProxy.address);
 
     return {
         agtReserveFeed,
@@ -77,7 +73,7 @@ async function deployReserveFeed(owner: WalletClient) {
 }
 
 async function deploy() {
-    const [owner] = await hre.viem.getWalletClients();
+    const [owner] = await viem.getWalletClients();
 
     const { agtReserveFeed, agtReserveFeedImplementation } = await deployReserveFeed(owner);
 

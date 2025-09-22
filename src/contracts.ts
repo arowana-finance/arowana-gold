@@ -1,7 +1,9 @@
-import hre from 'hardhat';
+import { network } from 'hardhat';
 import type { Account, PublicClient, WalletClient, Address } from 'viem';
 
 export type Runner = Account | PublicClient | WalletClient;
+
+const { viem } = await network.connect();
 
 export interface BaseConfig extends Record<string, string | number> {
     chainId: number;
@@ -32,21 +34,21 @@ export const goldConfigs: Record<number, GoldConfig> = {
 };
 
 export async function getStableCoinContract(address: Address) {
-    return hre.viem.getContractAt('ERC20Mock', address);
+    return await viem.getContractAt('ERC20Mock', address);
 }
 
 export async function getGoldTokenContract(address: Address) {
-    return hre.viem.getContractAt('GoldToken', address);
+    return await viem.getContractAt('GoldToken', address);
 }
 
 export async function getGoldPriceFeedContract(address: Address) {
-    return hre.viem.getContractAt('DataFeed', address);
+    return await viem.getContractAt('DataFeed', address);
 }
 
 export async function getGoldReserveFeedContract(address: Address) {
-    return hre.viem.getContractAt('DataFeed', address);
+    return await viem.getContractAt('DataFeed', address);
 }
 
 export async function getGoldMinterContract(address: Address) {
-    return hre.viem.getContractAt('GoldMinter', address);
+    return await viem.getContractAt('GoldMinter', address);
 }

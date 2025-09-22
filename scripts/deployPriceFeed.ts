@@ -1,6 +1,8 @@
-import hre from 'hardhat';
+import { network } from 'hardhat';
 import { Logger } from 'logger-chain';
 import { zeroAddress, parseGwei, encodeFunctionData, type Address, type Hex, type WalletClient } from 'viem';
+
+const { viem } = await network.connect();
 
 const AGT_SYMBOL = 'AGT';
 const AGT_ADDRESS = zeroAddress;
@@ -17,29 +19,27 @@ const UPDATE_INTERVAL = 3600;
 
 const logger = new Logger();
 
-/** tx logging helper (viem write는 tx hash 반환) */
 async function logTx(name: string, txHashPromise: Promise<Hex>) {
-    const publicClient = await hre.viem.getPublicClient();
+    const publicClient = await viem.getPublicClient();
     const hash = await txHashPromise;
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     logger.debug('Tx', `${name} (hash: ${receipt.transactionHash})`);
 }
 
-/** 배포 logging helper */
 async function logDeploy(name: string, address: Address) {
     logger.debug('Deploy', `${name}: ${address}`);
 }
 
 async function deployPriceFeed(owner: WalletClient) {
-    // Impl 배포
-    const agtPriceFeedImplementation = await hre.viem.deployContract('AGTPriceFeed', []);
+    // Impl deployment
+    const agtPriceFeedImplementation = await viem.deployContract('AGTPriceFeed', []);
     await logDeploy('AGTPriceFeedImplementation', agtPriceFeedImplementation.address);
 
-    // Proxy 배포
-    const agtPriceFeedProxy = await hre.viem.deployContract('InitializableProxy', []);
+    // Proxy deployment
+    const agtPriceFeedProxy = await viem.deployContract('InitializableProxy', []);
     await logDeploy('AGTPriceFeedProxy', agtPriceFeedProxy.address);
 
-    // 초기화 calldata 인코딩 (initializeAGTPriceFeed)
+    // initialization calldata encoding (initializeAGTPriceFeed)
     const initData = encodeFunctionData({
         abi: agtPriceFeedImplementation.abi,
         functionName: 'initializeAGTPriceFeed',
@@ -72,8 +72,8 @@ async function deployPriceFeed(owner: WalletClient) {
         ),
     );
 
-    // 프록시 주소로 붙은 실제 컨트랙트 핸들
-    const agtPriceFeed = await hre.viem.getContractAt('AGTPriceFeed', agtPriceFeedProxy.address);
+    // actual contract handle attached to the proxy address
+    const agtPriceFeed = await viem.getContractAt('AGTPriceFeed', agtPriceFeedProxy.address);
 
     return {
         agtPriceFeed,
@@ -82,7 +82,7 @@ async function deployPriceFeed(owner: WalletClient) {
 }
 
 async function deploy() {
-    const [owner] = await hre.viem.getWalletClients();
+    const [owner] = await viem.getWalletClients();
 
     const { agtPriceFeed, agtPriceFeedImplementation } = await deployPriceFeed(owner);
 

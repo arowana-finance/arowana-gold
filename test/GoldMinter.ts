@@ -1,8 +1,6 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, maxUint256, Address, getAddress } from 'viem';
-import hre from 'hardhat';
-import { loadFixture } from '@nomicfoundation/hardhat-network-helpers';
+import { parseUnits, parseEther, maxUint256, getAddress } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('3362.61', 8);
@@ -20,22 +18,22 @@ const fixtureData = {
 };
 
 describe('GoldMinter', function () {
-    const minterFixture = async () => {
-        const { owner, buyer } = await getClients();
+    const fixture = async () => {
+        const { owner, buyer, viem } = await getClients();
         const { USDTMintAmt, USDCMintAmt, USDTTransferAmt, USDCTransferAmt } = fixtureData;
 
-        const goldToken = await hre.viem.deployContract('GoldToken');
+        const goldToken = await viem.deployContract('GoldToken');
         await goldToken.write.initializeGoldToken([owner.account.address], {
             account: owner.account,
         });
 
-        const USDT = await hre.viem.deployContract('ERC20Mock', [
+        const USDT = await viem.deployContract('ERC20Mock', [
             'Tether USD',
             'USDT',
             6,
             parseUnits(String(USDTMintAmt), 6),
         ]);
-        const USDC = await hre.viem.deployContract('ERC20Mock', [
+        const USDC = await viem.deployContract('ERC20Mock', [
             'USD Coin',
             'USDC',
             6,
@@ -49,13 +47,13 @@ describe('GoldMinter', function () {
             account: owner.account,
         });
 
-        const goldPriceFeed = await hre.viem.deployContract('DataFeed');
+        const goldPriceFeed = await viem.deployContract('DataFeed');
         await goldPriceFeed.write.initializeFeed(
             [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} / USD`],
             { account: owner.account },
         );
 
-        const goldReserveFeed = await hre.viem.deployContract('DataFeed');
+        const goldReserveFeed = await viem.deployContract('DataFeed');
         await goldReserveFeed.write.initializeFeed(
             [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} PoR`],
             { account: owner.account },
@@ -68,7 +66,7 @@ describe('GoldMinter', function () {
             account: owner.account,
         });
 
-        const goldMinter = await hre.viem.deployContract('GoldMinter');
+        const goldMinter = await viem.deployContract('GoldMinter');
         await goldMinter.write.initializeGoldMinter(
             [
                 goldToken.address,
@@ -100,8 +98,7 @@ describe('GoldMinter', function () {
     };
 
     it('deploy', async function () {
-        const { goldToken, USDT, USDC, goldPriceFeed, goldReserveFeed, goldMinter } =
-            await loadFixture(minterFixture);
+        const { goldToken, USDT, USDC, goldPriceFeed, goldReserveFeed, goldMinter } = await fixture();
 
         expect(await goldMinter.read.goldToken()).to.equal(getAddress(goldToken.address));
         expect(await goldMinter.read.USDT()).to.equal(getAddress(USDT.address));
@@ -115,7 +112,7 @@ describe('GoldMinter', function () {
     });
 
     it('getGoldAmount', async function () {
-        const { USDT, goldMinter } = await loadFixture(minterFixture);
+        const { USDT, goldMinter } = await fixture();
 
         expect(await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN])).to.equal(
             parseEther('1'),
@@ -127,21 +124,19 @@ describe('GoldMinter', function () {
     });
 
     it('getUsdAmount', async function () {
-        const { USDT, goldMinter } = await loadFixture(minterFixture);
+        const { USDT, goldMinter } = await fixture();
 
-        // 1골드 → GOLD_PRICE_IN_USD_TOKEN USD
         expect(await goldMinter.read.getUsdAmount([USDT.address, parseEther('1')])).to.equal(
             GOLD_PRICE_IN_USD_TOKEN,
         );
 
-        // 절반 골드 → 절반 USD
         expect(await goldMinter.read.getUsdAmount([USDT.address, parseEther('1') / 2n])).to.equal(
             GOLD_PRICE_IN_USD_TOKEN / 2n,
         );
     });
 
     it('canMint', async function () {
-        const { goldMinter } = await loadFixture(minterFixture);
+        const { goldMinter } = await fixture();
 
         expect(await goldMinter.read.canMint([GOLD_RESERVE_IN_TOKEN])).to.be.true;
 
@@ -149,7 +144,7 @@ describe('GoldMinter', function () {
     });
 
     it('requestMint (with permit)', async function () {
-        const { owner, buyer, USDT, goldToken, goldMinter } = await loadFixture(minterFixture);
+        const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
         const { goldMintAmt } = fixtureData;
 
         await goldMinter.write.setLevel([buyer.account.address, 2], {
@@ -180,7 +175,7 @@ describe('GoldMinter', function () {
     });
 
     it('requestBurn', async function () {
-        const { owner, buyer, USDT, goldToken, goldMinter } = await loadFixture(minterFixture);
+        const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
         const { goldSellAmt } = fixtureData;
 
         await goldMinter.write.setLevel([buyer.account.address, 2], {

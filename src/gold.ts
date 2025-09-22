@@ -95,26 +95,26 @@ export function calculateSwap({
     minGoldFee,
     minGoldFeeAmount,
 }: GoldMintQuote): GoldMintQuoteResult {
-    // 출력 자릿수
+    // Output digits
     const outputDecimals = isBuy ? GOLD_TOKEN_DECIMALS : USD_TOKEN_MAX_DECIMALS;
 
-    // 1) 순수 계산된 출력
+    // 1) Purely calculated output
     const outputAmount = NumDecimals(
         isBuy ? inputAmount / goldPrice : inputAmount * goldPrice,
         outputDecimals,
     );
 
-    // 2) 수수료 기준이 되는 goldAmount
+    // 2) goldAmount used as the fee basis
     const goldAmount = isBuy ? outputAmount : inputAmount;
     const overMinGoldFeeAmount = goldAmount >= (minGoldFeeAmount ?? 0);
 
-    // 3) 수수료: 기준금액 이상이면 (amount * fees%) / 100, 아니면 최소 수수료
+    // 3) Fee: if above the threshold amount → (amount * fee%) / 100, otherwise the minimum fee
     const goldFees = NumDecimals(
         overMinGoldFeeAmount ? (goldAmount * (fees ?? 0)) / 100 : (minGoldFee ?? 0),
         GOLD_TOKEN_DECIMALS,
     );
 
-    // 4) 슬리피지 반영 예상치(사용자 안내용)
+    // 4) Slippage-adjusted estimate (for user guidance)
     const outputOnSlippage = NumDecimals(
         (outputAmount * (100 - (slippage ?? 2) * 0.5 + (fees ?? 0))) / 100,
         outputDecimals,
