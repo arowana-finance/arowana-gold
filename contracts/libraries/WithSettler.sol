@@ -46,4 +46,8 @@ contract WithSettler is Ownable {
         _settlers.remove(_settler);
         emit RemoveSettler(_settler);
     }
+
+    function isSettler(address _settler) internal view returns (bool) {
+        return _settlers.contains(_settler);
+    }
 }

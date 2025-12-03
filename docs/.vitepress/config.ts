@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitepress'
+import { defineConfig } from 'vitepress';
 import pkgJson from '../../package.json';
 
 // HTML title
@@ -14,68 +14,74 @@ export const COPYRIGHT = `Copyright © 2025 ${pkgJson.author || 'Arowana Finance
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
-  title: "TypeScript Project",
+    title: 'TypeScript Project',
 
-  description: pkgJson.description,
+    description: pkgJson.description,
 
-  head: [
-    ['link', { rel: 'icon', href: LOGO }],
+    head: [
+        ['link', { rel: 'icon', href: LOGO }],
 
-    ['link', { rel: 'canonical', href: HOMEPAGE }],
-    ['link', { rel: 'canonical', href: REPO }],
-    ['link', { rel: 'canonical', href: NPMJS }],
-    ['meta', { name: 'description', content: pkgJson.description }],
-    ['meta', { name: 'keywords', content: (pkgJson.keywords || []).join(',') || pkgJson.name }],
+        ['link', { rel: 'canonical', href: HOMEPAGE }],
+        ['link', { rel: 'canonical', href: REPO }],
+        ['link', { rel: 'canonical', href: NPMJS }],
+        ['meta', { name: 'description', content: pkgJson.description }],
+        [
+            'meta',
+            {
+                name: 'keywords',
+                content: (pkgJson.keywords || []).join(',') || pkgJson.name,
+            },
+        ],
 
-    // og
-    ['meta', { property: 'og:title', content: TITLE }],
-    ['meta', { property: 'og:description', content: pkgJson.description }],
-    ['meta', { property: 'og:image', content: LOGO }],
-    ['meta', { property: 'og:url', content: HOMEPAGE }],
+        // og
+        ['meta', { property: 'og:title', content: TITLE }],
+        ['meta', { property: 'og:description', content: pkgJson.description }],
+        ['meta', { property: 'og:image', content: LOGO }],
+        ['meta', { property: 'og:url', content: HOMEPAGE }],
 
-    // seo
-    ['meta', { name: 'robots', content: 'index,follow' }],
-    ['meta', { name: 'googlebot', content: 'index,follow' }],
-  ],
-
-  themeConfig: {
-    // https://vitepress.dev/reference/default-theme-config
-    logo: LOGO,
-
-    nav: [
-      { text: 'Home', link: '/' },
-      { text: 'Github', link: REPO },
-      {
-        text: `v${pkgJson.version}`,
-        items: [
-          { text: 'Package', link: NPMJS },
-          //{ text: 'Changelog', link: '${REPO}/blob/main/CHANGELOG.md' },
-        ]
-      },
-      { text: 'Examples', link: '/markdown-examples' }
+        // seo
+        ['meta', { name: 'robots', content: 'index,follow' }],
+        ['meta', { name: 'googlebot', content: 'index,follow' }],
     ],
 
-    sidebar: [
-      {
-        text: 'Examples',
-        items: [
-          { text: 'Markdown Examples', link: '/markdown-examples' },
-          { text: 'Runtime API Examples', link: '/api-examples' }
-        ]
-      }
-    ],
+    themeConfig: {
+        // https://vitepress.dev/reference/default-theme-config
+        logo: LOGO,
 
-    socialLinks: [
-      { icon: 'homepage', link: HOMEPAGE },
-      { icon: 'github', link: REPO },
-    ],
+        nav: [
+            { text: 'Home', link: '/' },
+            { text: 'Github', link: REPO },
+            {
+                text: `v${pkgJson.version}`,
+                items: [
+                    { text: 'Package', link: NPMJS },
+                    //{ text: 'Changelog', link: '${REPO}/blob/main/CHANGELOG.md' },
+                ],
+            },
+            { text: 'Examples', link: '/markdown-examples' },
+        ],
 
-    footer: {
-      message: `
+        sidebar: [
+            {
+                text: 'Examples',
+                items: [
+                    { text: 'Markdown Examples', link: '/markdown-examples' },
+                    { text: 'Runtime API Examples', link: '/api-examples' },
+                ],
+            },
+        ],
+
+        socialLinks: [
+            { icon: 'homepage', link: HOMEPAGE },
+            { icon: 'github', link: REPO },
+        ],
+
+        footer: {
+            message: `
         Released under the
         <a href="https://opensource.org/licenses/${LICENSE}" target="_blank" class="footer-year">${LICENSE} License</a>.
       `,
-      copyright: COPYRIGHT,
+            copyright: COPYRIGHT,
+        },
     },
-  }
-})
+});

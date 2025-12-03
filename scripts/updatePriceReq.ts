@@ -8,23 +8,26 @@ import {
     Location,
     CodeLanguage,
 } from '@chainlink/functions-toolkit';
-import { getSigners } from 'ethers-opt/hardhat/fixtures';
-import { getBytes } from 'ethers';
-import { BaseFunctionsConsumer__factory } from '../typechain-types/index.js';
+import { hexToBytes, type Hex } from 'viem';
+import { network } from 'hardhat';
 
-const CONSUMER_ADDRESS = process.env.CONSUMER_ADDRESS || '0xBB7D041d5E2828569f4Bd667509AE15c3862298C';
-const SUBSCRIPTION_ID = Number(process.env.SUBSCRIPTION_ID || 406);
+const { viem } = await network.connect();
+
+const CONSUMER_ADDRESS =
+    (process.env.CONSUMER_ADDRESS as `0x${string}`) ??
+    ('0xc6323b645cf5822db1e03df44f62e9b8dc5b6924' as const);
+const SUBSCRIPTION_ID = Number(process.env.SUBSCRIPTION_ID ?? 542);
 
 const gasLimit = 300000;
 
 interface ChainlinkConfig {
-    routerAddress: string;
+    routerAddress: `0x${string}`;
     explorerUrl: string;
-    donID: string;
+    donID: `0x${string}`;
 }
 
 const networkConfigs: Record<number, ChainlinkConfig> = {
-    [421614]: {
+    421614: {
         routerAddress: '0x234a5fb5Bd614a7AA2FfAB244D603abFA0Ac5C5C',
         explorerUrl: 'https://sepolia.arbiscan.io',
         donID: '0x66756e2d617262697472756d2d7365706f6c69612d3100000000000000000000',
@@ -32,25 +35,22 @@ const networkConfigs: Record<number, ChainlinkConfig> = {
 };
 
 async function updateRequest() {
-    const [owner] = await getSigners();
+    const [owner] = await viem.getWalletClients();
+    const publicClient = await viem.getPublicClient();
 
-    const { provider } = owner;
-
-    const chainId = Number((await provider.getNetwork()).chainId);
-
-    const { donID, explorerUrl } = networkConfigs[chainId];
+    const chainId = await publicClient.getChainId();
+    const netCfg = networkConfigs[chainId];
+    if (!netCfg) throw new Error(`Unsupported chainId: ${chainId}`);
+    const { donID, explorerUrl } = netCfg;
 
     const source = await readFile('./deno/priceSource.js', { encoding: 'utf8' });
-
-    ///////// START SIMULATION ////////////
-
     console.log('Start simulation...');
 
     const response = await simulateScript({
         source,
         args: [],
-        bytesArgs: [], // bytesArgs - arguments can be encoded off-chain to bytes.
-        //secrets: secrets,
+        bytesArgs: [],
+        // secrets: ...
     });
 
     console.log('Simulation result', response);
@@ -59,8 +59,8 @@ async function updateRequest() {
         console.log(`❌ Error during simulation: `, errorString);
     } else {
         const returnType = ReturnType.uint256;
-        if (responseBytesHexstring && getBytes(responseBytesHexstring).length) {
-            const decodedResponse = decodeResult(responseBytesHexstring, returnType);
+        if (responseBytesHexstring && hexToBytes(responseBytesHexstring as Hex).length) {
+            const decodedResponse = decodeResult(responseBytesHexstring as Hex, returnType);
             console.log(`✅ Decoded response to ${returnType}: `, decodedResponse);
         }
     }
@@ -68,9 +68,7 @@ async function updateRequest() {
     //////// MAKE REQUEST ////////
     console.log('\nMake request...');
 
-    const automatedFunctionsConsumer = BaseFunctionsConsumer__factory.connect(CONSUMER_ADDRESS, owner);
-
-    // Encode request
+    const automatedFunctionsConsumer = await viem.getContractAt('BaseFunctionsConsumer', CONSUMER_ADDRESS);
 
     const functionsRequestBytesHexString = buildRequestCBOR({
         codeLocation: Location.Inline,
@@ -78,19 +76,32 @@ async function updateRequest() {
         source,
         args: [],
         bytesArgs: [],
-    });
+    }) as `0x${string}`;
 
-    const transaction = await automatedFunctionsConsumer.updateRequest(
-        functionsRequestBytesHexString,
-        SUBSCRIPTION_ID,
-        gasLimit,
-        donID,
+    const updateTxHash = await automatedFunctionsConsumer.write.updateRequest(
+        [functionsRequestBytesHexString, BigInt(SUBSCRIPTION_ID), gasLimit, donID],
+        { account: owner.account },
     );
 
-    // Log transaction details
+    const updateReceipt = await publicClient.waitForTransactionReceipt({
+        hash: updateTxHash,
+    });
+    console.log(`✅ Request settings updated! Transaction hash ${updateReceipt.transactionHash}`);
+
+    //////// SEND REQUEST ////////
+    console.log('\nSending Functions request...');
+
+    const sendTxHash = await automatedFunctionsConsumer.write.sendRequestCBOR([], { account: owner.account });
+
+    const sendReceipt = await publicClient.waitForTransactionReceipt({
+        hash: sendTxHash,
+    });
     console.log(
-        `\n✅ Automated Functions request settings updated! Transaction hash ${transaction.hash} - Check the explorer ${explorerUrl}/tx/${transaction.hash}`,
+        `\n✅ Functions request sent! Transaction hash ${sendReceipt.transactionHash} - Check the explorer ${explorerUrl}/tx/${sendReceipt.transactionHash}`,
     );
 }
 
-updateRequest();
+updateRequest().catch((err) => {
+    console.error(err);
+    process.exit(1);
+});
