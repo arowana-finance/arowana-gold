@@ -474,6 +474,22 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 		GoldMinterStorage storage $ = _getGoldMinterStorage();
 		return $.slippage;
 	}
+	function tradeLevel() public view returns(IGoldMinter.Levels) {
+		GoldMinterStorage storage $ = _getGoldMinterStorage();
+		return $.tradeLevel;
+	}
+	function minGoldAmount() public view returns(uint256) {
+		GoldMinterStorage storage $ = _getGoldMinterStorage();
+		return $.minGoldAmount;
+	}
+	function minGoldFee() public view returns(uint256) {
+		GoldMinterStorage storage $ = _getGoldMinterStorage();
+		return $.minGoldFee;
+	}
+	function minGoldFeeAmount() public view returns(uint256) {
+		GoldMinterStorage storage $ = _getGoldMinterStorage();
+		return $.minGoldFeeAmount;
+	}
 
     /// @dev Return fee amount in Gold
     function calculateGoldFee(uint256 _goldAmount) public view returns (uint256) {
