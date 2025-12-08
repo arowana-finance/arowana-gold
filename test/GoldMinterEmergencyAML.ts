@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, maxUint256, getAddress } from 'viem';
+import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('3362.61', 8);
@@ -55,19 +55,29 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             account: owner.account,
         });
 
-        const goldMinter = await viem.deployContract('GoldMinter');
-        await goldMinter.write.initializeGoldMinter(
-            [
+        const goldMinterImpl = await viem.deployContract('GoldMinter');
+        const goldMinterProxy = await viem.deployContract('InitializableProxy', []);
+
+        const initData = encodeFunctionData({
+            abi: goldMinterImpl.abi,
+            functionName: 'initializeGoldMinter',
+            args: [
                 goldToken.address,
                 USDT.address,
                 USDC.address,
                 goldPriceFeed.address,
                 owner.account.address,
                 owner.account.address,
-                true, // autoSettle = true
+                true,
             ],
+        });
+
+        await goldMinterProxy.write.initializeProxy(
+            ['GoldMinter', owner.account.address, goldMinterImpl.address, initData],
             { account: owner.account },
         );
+
+        const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,

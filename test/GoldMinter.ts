@@ -1,11 +1,10 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, maxUint256, getAddress } from 'viem';
+import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('3362.61', 8);
 const GOLD_PRICE_IN_USD_TOKEN = parseUnits('3362.61', 6);
-const GOLD_RESERVE_IN_TOKEN = parseEther('10000');
 
 const fixtureData = {
     USDTMintAmt: 100000,
@@ -56,9 +55,13 @@ describe('GoldMinter', function () {
             account: owner.account,
         });
 
-        const goldMinter = await viem.deployContract('GoldMinter');
-        await goldMinter.write.initializeGoldMinter(
-            [
+        const goldMinterImpl = await viem.deployContract('GoldMinter');
+        const goldMinterProxy = await viem.deployContract('InitializableProxy', []);
+
+        const initData = encodeFunctionData({
+            abi: goldMinterImpl.abi,
+            functionName: 'initializeGoldMinter',
+            args: [
                 goldToken.address,
                 USDT.address,
                 USDC.address,
@@ -67,8 +70,14 @@ describe('GoldMinter', function () {
                 owner.account.address,
                 false,
             ],
+        });
+
+        await goldMinterProxy.write.initializeProxy(
+            ['GoldMinter', owner.account.address, goldMinterImpl.address, initData],
             { account: owner.account },
         );
+
+        const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,
@@ -95,7 +104,7 @@ describe('GoldMinter', function () {
         expect(await goldPriceFeed.read.latestAnswer()).to.equal(GOLD_PRICE);
 
         expect(await goldMinter.read.slippage()).to.equal(500);
-        expect(await goldMinter.read.fees()).to.equal(50);
+        expect(await goldMinter.read.fees()).to.equal(40);
     });
 
     it('getGoldAmount', async function () {

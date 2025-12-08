@@ -40,4 +40,8 @@ library Errors {
     error InvalidPrice();
     error PriceOutOfRange();
     error StalePrice();
+	error InvalidPriceAge();
+
+    // ============ Token Errors ============
+    error InvalidUSDToken();
 }
