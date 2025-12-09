@@ -20,6 +20,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
     // ============ Constants ============
 
+    // Unit conversion constants for ounce to gram conversion (8 decimals matches Oracle precision)
+    uint256 public constant GRAMS_PER_OUNCE = 3110347680; // 31.1034768 * 1e8 (8 decimal precision)
+    uint256 public constant CONVERSION_PRECISION = 1e8;
+
     // EIP-712 type hashes
     bytes32 public constant KYC_MINT_REQUEST_TYPEHASH =
         keccak256("KYCMintRequest(address user,uint8 kycLevel,uint256 nonce,uint256 deadline,address usdToken,uint256 usdAmount,uint256 minGoldAmount)");
@@ -144,15 +148,16 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         $.slippage = 500; // 5%
         $.fees = 40; // 0.4%
-        $.minGoldAmount = 0.1 ether;
-        $.minGoldFee = 0.01 ether;
-        $.minGoldFeeAmount = 1 ether;
+        $.minGoldAmount = 1 ether; // 1 gram
+        $.minGoldFee = 0.01 ether; // 0.01 gram
+        $.minGoldFeeAmount = 1 ether; // 1 gram
         $.autoSettle = _autoSettle;
         $.tradeLevel = IGoldMinter.Levels.KYCD;
         $.usdRecipient = _usdRecipient;
         $.maxPriceAge = 10 minutes;
-		$.minGoldPrice = 500e8;  // $500
-  		$.maxGoldPrice = 10000e8; // $10,000
+        // Oracle price validation limits (ounce-based, matches Oracle format)
+		$.minGoldPrice = 500e8;  // $500/ounce
+  		$.maxGoldPrice = 10000e8; // $10,000/ounce
 
         __ReentrancyGuard_init();
         __Pausable_init();
@@ -170,9 +175,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         bytes memory permitSignature
     ) external whenNotPaused {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
-
         if (msg.sender != kycRequest.user) revert Errors.InvalidSignature();
-        if ($.amlBlacklist[msg.sender]) revert Errors.AMLBlocked();
+		if (kycSignature.length == 0) revert Errors.ZeroSignature();
 
         // Verify KYC signature from backend (optional)
         _processKYC($, kycRequest, kycSignature);
@@ -194,8 +198,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
     ) external whenNotPaused {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
 
-        if ($.amlBlacklist[msg.sender]) revert Errors.AMLBlocked();
-
         _processUSDPermit($, _usdToken, _usdAmount, _sigDeadline, _signature);
 
         requestMint(_usdToken, _usdAmount, _minGoldAmount);
@@ -210,7 +212,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         GoldMinterStorage storage $ = _getGoldMinterStorage();
 
         if (msg.sender != kycRequest.user) revert Errors.InvalidSignature();
-        if ($.amlBlacklist[msg.sender]) revert Errors.AMLBlocked();
+		if (kycSignature.length == 0) revert Errors.ZeroSignature();
 
         // Verify KYC signature from backend (optional)
         _processKYCBurn($, kycRequest, kycSignature);
@@ -231,9 +233,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         bytes memory _signature
     ) external whenNotPaused {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
-
-        // Validate user permissions and AML status
-        _validateUserPermissions($, IGoldMinter.Levels.DEFAULT);
 
         // Process Gold permit
         _processGoldPermit($, _goldAmount, _sigDeadline, _signature);
@@ -730,6 +729,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         );
     }
 
+    /// @dev Convert ounce-based price to gram-based price
+    function _convertOunceToGramPrice(uint256 ouncePrice) internal pure returns (uint256) {
+        return (ouncePrice * CONVERSION_PRECISION) / GRAMS_PER_OUNCE;
+    }
+
     function _getValidatedPrice() internal view returns (uint256, uint8) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
 
@@ -737,16 +741,20 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         if (price <= 0) revert Errors.InvalidPrice();
 
+        // Validate ounce-based Oracle price against ounce-based limits
 		if (uint256(price) < $.minGoldPrice || uint256(price) > $.maxGoldPrice) {
           revert Errors.PriceOutOfRange();
       	}
-		
+
         if (block.timestamp - updatedAt > $.maxPriceAge) {
             revert Errors.StalePrice();
         }
 
+        // Convert ounce-based Oracle price to gram-based price for calculations
+        uint256 gramPrice = _convertOunceToGramPrice(uint256(price));
+
         (, , , uint8 oracleDecimals) = _getTokenDecimals($);
-        return (uint256(price), oracleDecimals);
+        return (gramPrice, oracleDecimals);
     }
 
     function _verifyKYCMintSignature(

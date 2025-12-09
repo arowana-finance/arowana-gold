@@ -35,6 +35,7 @@ library Errors {
     error InvalidSignature();
     error ExpiredSignature();
     error InvalidNonceSignature();
+	error ZeroSignature();
 
     // ============ Oracle Errors ============
     error InvalidPrice();

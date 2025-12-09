@@ -1,10 +1,12 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, getAddress, encodeFunctionData } from 'viem';
+import { parseUnits, parseEther, getAddress, encodeFunctionData, maxUint256 } from 'viem';
 import { getClients } from './helpers.js';
 
-const GOLD_PRICE = parseUnits('3362.61', 8);
-const GOLD_PRICE_IN_USD_TOKEN = parseUnits('3362.61', 6);
+const GOLD_PRICE = parseUnits('4200', 8); // Oracle price (per ounce)
+const GRAMS_PER_OUNCE = parseUnits('31.1034768', 8); // Same as contract constant
+// Calculate gram-based price: (Oracle ounce price * 1e8) / grams per ounce / 100 (8 decimals to 6 decimals)
+const GOLD_PRICE_IN_USD_TOKEN = (GOLD_PRICE * parseUnits('1', 8)) / GRAMS_PER_OUNCE / 100n;
 
 const fixtureData = {
     USDTMintAmt: 100000,
@@ -82,6 +84,9 @@ describe('GoldMinter - Upgrade Tests', function () {
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,
         });
+
+        await USDC.write.approve([goldMinter.address, maxUint256], { account: owner.account });
+        await USDT.write.approve([goldMinter.address, maxUint256], { account: owner.account });
 
         return {
             owner,
@@ -190,19 +195,28 @@ describe('GoldMinter - Upgrade Tests', function () {
     it('should maintain functionality after upgrade', async function () {
         const { owner, buyer, USDT, goldToken, goldMinter, goldMinterProxy, viem } = await fixture();
 
+        const agtAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
+
         // Perform a mint operation before upgrade
         await goldMinter.write.setLevel([buyer.account.address, 2], {
             account: owner.account,
         });
 
-        await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+        await USDT.write.approve([goldMinter.address, agtAmt], {
             account: buyer.account,
         });
 
-        await goldMinter.write.requestMint(
-            [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-            { account: buyer.account },
-        );
+        // Calculate expected AGT amount before fees
+        const expectedAGT = Number(await goldMinter.read.getGoldAmount([USDT.address, agtAmt]));
+
+        // Calculate expected fee
+        const expectedFee = await goldMinter.read.calculateGoldFee([expectedAGT]);
+
+        const expectedAGTAfterFee = Number(expectedAGT) - Number(expectedFee);
+
+        await goldMinter.write.requestMint([USDT.address, agtAmt, expectedAGTAfterFee], {
+            account: buyer.account,
+        });
 
         const balanceBeforeUpgrade = await goldToken.read.balanceOf([buyer.account.address]);
 
@@ -220,17 +234,16 @@ describe('GoldMinter - Upgrade Tests', function () {
         expect(balanceAfterUpgrade).to.equal(balanceBeforeUpgrade);
 
         // Perform another mint operation after upgrade
-        await USDT.write.approve([upgradedGoldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+        await USDT.write.approve([upgradedGoldMinter.address, agtAmt], {
             account: buyer.account,
         });
 
-        await upgradedGoldMinter.write.requestMint(
-            [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-            { account: buyer.account },
-        );
+        await upgradedGoldMinter.write.requestMint([USDT.address, agtAmt, expectedAGTAfterFee], {
+            account: buyer.account,
+        });
 
         // Verify new mint worked
-        const finalBalance = await goldToken.read.balanceOf([buyer.account.address]);
+        const finalBalance = Number(await goldToken.read.balanceOf([buyer.account.address]));
         expect(finalBalance).to.be.greaterThan(Number(balanceAfterUpgrade));
     });
 

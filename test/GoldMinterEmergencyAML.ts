@@ -3,8 +3,10 @@ import { expect } from 'chai';
 import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
-const GOLD_PRICE = parseUnits('3362.61', 8);
-const GOLD_PRICE_IN_USD_TOKEN = parseUnits('3362.61', 6);
+const GOLD_PRICE = parseUnits('4198.21', 8); // Oracle price (per ounce)
+const GRAMS_PER_OUNCE = parseUnits('31.1034768', 8); // Same as contract constant
+// Calculate gram-based price: (Oracle ounce price * 1e8) / grams per ounce / 100 (8 decimals to 6 decimals)
+const GOLD_PRICE_IN_USD_TOKEN = (GOLD_PRICE * parseUnits('1', 8)) / GRAMS_PER_OUNCE / 100n;
 
 const fixtureData = {
     USDTMintAmt: 100000,
@@ -80,6 +82,13 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
         await goldToken.write.addMinter([goldMinter.address], {
+            account: owner.account,
+        });
+
+        await USDT.write.approve([goldMinter.address, maxUint256], {
+            account: owner.account,
+        });
+        await USDC.write.approve([goldMinter.address, maxUint256], {
             account: owner.account,
         });
 
@@ -263,14 +272,24 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: owner.account,
             });
 
-            await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+            const agtAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
+
+            // Calculate expected AGT amount before fees
+            const expectedAGT = Number(await goldMinter.read.getGoldAmount([USDT.address, agtAmt]));
+
+            // Calculate expected fee
+            const expectedFee = await goldMinter.read.calculateGoldFee([expectedAGT]);
+
+            const expectedAGTAfterFee = Number(expectedAGT) - Number(expectedFee);
+
+            await USDT.write.approve([goldMinter.address, agtAmt], {
                 account: buyer.account,
             });
 
-            await goldMinter.write.requestMint(
-                [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                { account: buyer.account },
-            );
+            await goldMinter.write.requestMint([USDT.address, agtAmt, expectedAGTAfterFee], {
+                // Allow small tolerance
+                account: buyer.account,
+            });
 
             const goldBalance = await goldToken.read.balanceOf([buyer.account.address]);
 

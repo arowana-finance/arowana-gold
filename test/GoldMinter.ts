@@ -3,8 +3,10 @@ import { expect } from 'chai';
 import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
-const GOLD_PRICE = parseUnits('4198.22', 8);
-const GOLD_PRICE_IN_USD_TOKEN = parseUnits('4198.22', 6);
+const GOLD_PRICE = parseUnits('4096.342', 8); // Oracle price (per ounce)
+const GRAMS_PER_OUNCE = parseUnits('31.1034768', 8); // Same as contract constant
+// Calculate gram-based price: (Oracle ounce price * 1e8) / grams per ounce / 100 (8 decimals to 6 decimals)
+const GOLD_PRICE_IN_USD_TOKEN = (GOLD_PRICE * parseUnits('1', 8)) / GRAMS_PER_OUNCE / 100n;
 
 const fixtureData = {
     USDTMintAmt: 100000,
@@ -12,7 +14,7 @@ const fixtureData = {
     USDCMintAmt: 100000,
     USDCTransferAmt: 10000,
     goldMintAmt: 1,
-    goldSellAmt: 1,
+    goldSellAmt: 2,
 };
 
 describe('GoldMinter', function () {
@@ -110,13 +112,11 @@ describe('GoldMinter', function () {
     it('getGoldAmount', async function () {
         const { USDT, goldMinter } = await fixture();
 
-        expect(await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN])).to.equal(
-            parseEther('1'),
-        );
+        const result1 = await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN]);
+        expect(Number(result1)).to.be.closeTo(Number(parseEther('1')), Number(parseEther('0.000005'))); // Allow 5 microether tolerance
 
-        expect(await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN / 2n])).to.equal(
-            parseEther('1') / 2n,
-        );
+        const result2 = await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN / 2n]);
+        expect(Number(result2)).to.be.closeTo(Number(parseEther('1')) / 2, Number(parseEther('0.000005'))); // Allow 5 microether tolerance
     });
 
     it('getUsdAmount', async function () {
@@ -173,7 +173,7 @@ describe('GoldMinter', function () {
             account: buyer.account,
         });
         await goldMinter.write.requestMint(
-            [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(goldSellAmt))],
+            [USDT.address, GOLD_PRICE_IN_USD_TOKEN * 2n, parseEther(String(goldSellAmt))],
             {
                 account: buyer.account,
             },
@@ -216,7 +216,7 @@ describe('GoldMinter', function () {
         });
 
         // Test parameters - larger amount to trigger percentage fee
-        const usdAmount = parseUnits('4300', 6); // 4300 USDT
+        const usdAmount = parseUnits('500', 6); // 4300 USDT
         const goldPrice = await goldPriceFeed.read.latestAnswer();
 
         // Calculate expected AGT amount before fees
@@ -322,14 +322,16 @@ describe('GoldMinter', function () {
         console.log(`\n=== COMPLETE TEST SUMMARY ===`);
         console.log(`INITIAL STATE:`);
         console.log(`  User starts with: $${usdAmount / 1000000n} USDT`);
-        console.log(`  Gold price: $${Number(goldPrice) / 100000000}`);
+        console.log(
+            `  Gold price: $${Number(goldPrice) / 100000000} per ounce, $${Number(goldPrice) / 100000000 / 31.1034768} per gram`,
+        );
 
         console.log(`\nMINT PROCESS:`);
         console.log(`  Expected AGT (before fee): ${Number(expectedAGT) / 1e18} AGT`);
         console.log(`  Mint fee: ${Number(expectedFee) / 1e18} AGT = $${feeValueInUSD / 1000000} USD (0.4%)`);
         console.log(`  User received: ${actualAGTReceived / 1e18} AGT`);
         console.log(
-            `  AGT value verification: ${actualAGTReceived / 1e18} AGT × $${Number(goldPrice) / 100000000} = $${(actualAGTReceived * Number(goldPrice)) / (1e18 * 1e8)} USD`,
+            `  AGT value verification: ${actualAGTReceived / 1e18} AGT × $${Number(goldPrice) / 100000000 / 31.1034768} = $${(actualAGTReceived * Number(goldPrice)) / (1e18 * 1e8 * 31.1034768)} USD`,
         );
 
         console.log(`\nBURN PROCESS:`);
@@ -338,7 +340,7 @@ describe('GoldMinter', function () {
         console.log(`  User received back: $${actualUSDTReceived / 1000000} USDT`);
         console.log(`  Remaining AGT after fee: ${(burnAmount - actualAGTFeeReceived) / 1e18} AGT`);
         console.log(
-            `  Remaining AGT value verification: ${(burnAmount - actualAGTFeeReceived) / 1e18} AGT × $${Number(goldPrice) / 100000000} = $${((burnAmount - actualAGTFeeReceived) * Number(goldPrice)) / (1e18 * 1e8)} USD`,
+            `  Remaining AGT value verification: ${(burnAmount - actualAGTFeeReceived) / 1e18} AGT × $${Number(goldPrice) / 100000000 / 31.1034768} = $${((burnAmount - actualAGTFeeReceived) * Number(goldPrice)) / (1e18 * 1e8 * 31.1034768)} USD`,
         );
 
         console.log(`\nFINAL RESULTS:`);
