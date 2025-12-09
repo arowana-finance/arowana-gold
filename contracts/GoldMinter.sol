@@ -144,8 +144,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         $.slippage = 500; // 5%
         $.fees = 40; // 0.4%
-        $.minGoldAmount = 0.02 ether;
-        $.minGoldFee = 0.1 ether;
+        $.minGoldAmount = 0.1 ether;
+        $.minGoldFee = 0.01 ether;
         $.minGoldFeeAmount = 1 ether;
         $.autoSettle = _autoSettle;
         $.tradeLevel = IGoldMinter.Levels.KYCD;
