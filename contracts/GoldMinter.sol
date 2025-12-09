@@ -558,10 +558,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
             $.burnOrders[burnNonce].usdAmount = usdAmount;
 
             uint256 feeAmount = calculateGoldFee(goldAmount);
+      		uint256 usdAfterFee = getUsdAmount(address(usdToken), goldAmount - feeAmount);
 
             $.goldToken.burn(goldAmount - feeAmount);
             $.goldToken.safeTransfer($.usdRecipient, feeAmount);
-            usdToken.safeTransferFrom($.usdRecipient, $.burnOrders[burnNonce].seller, usdAmount);
+            usdToken.safeTransferFrom($.usdRecipient, $.burnOrders[burnNonce].seller, usdAfterFee);
         }
 
         $.burnOrders[burnNonce].success = success;
