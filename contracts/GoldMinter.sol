@@ -389,6 +389,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         uint256 mintNonce = $.mintOrders.length;
 
+		usdToken.safeTransferFrom(msg.sender, $.usdRecipient, _usdAmount);
+
         $.mintOrders.push(
             IGoldMinter.MintOrder({
                 buyer: msg.sender,
@@ -400,8 +402,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
                 isSettled: false
             })
         );
-
-		usdToken.safeTransferFrom(msg.sender, $.usdRecipient, _usdAmount);
 
         emit RequestMint(mintNonce, msg.sender, address(usdToken), _usdAmount, _minGoldAmount);
 
