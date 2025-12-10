@@ -746,7 +746,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
           revert Errors.PriceOutOfRange();
       	}
 
-        if (block.timestamp - updatedAt > $.maxPriceAge) {
+        if (updatedAt > block.timestamp || block.timestamp - updatedAt > $.maxPriceAge) {
             revert Errors.StalePrice();
         }
 
