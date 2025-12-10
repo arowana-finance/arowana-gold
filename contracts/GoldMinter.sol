@@ -744,7 +744,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         emit UpdateTradingLevel($.tradeLevel);
         emit UpdateRecipient($.usdRecipient);
 
-        (uint8 goldDecimals, uint8 usdtDecimals, uint8 usdcDecimals, ) = _getTokenDecimals($);
+		uint8 goldDecimals = $.goldToken.decimals();
+		uint8 usdtDecimals = $.USDT.decimals();
+		uint8 usdcDecimals = $.USDC.decimals();
+		
         emit Initialized(
             address($.goldToken),
             goldDecimals,
