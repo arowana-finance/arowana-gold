@@ -42,6 +42,9 @@ library Errors {
     error PriceOutOfRange();
     error StalePrice();
 	error InvalidPriceAge();
+    error InvalidOraclePrice();
+    error OracleTooStale();
+    error PriceChangeTooLarge();
 
     // ============ Token Errors ============
     error InvalidUSDToken();

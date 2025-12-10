@@ -256,9 +256,29 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
     function updatePriceFeed(address _goldPriceFeed) external onlyOwner {
         if (_goldPriceFeed == address(0)) revert Errors.ZeroPriceFeed();
-        GoldMinterStorage storage $ = _getGoldMinterStorage();
-        $.goldPriceFeed = IPriceFeed(_goldPriceFeed);
-        emit UpdatePriceFeed(_goldPriceFeed);
+
+		IPriceFeed newFeed = IPriceFeed(_goldPriceFeed);
+
+		(, int256 newPrice, , uint256 newUpdatedAt, ) = newFeed.latestRoundData();
+		if (newPrice <= 0) revert Errors.InvalidOraclePrice();
+		if (block.timestamp - newUpdatedAt > 1 hours) revert Errors.OracleTooStale();
+
+		GoldMinterStorage storage $ = _getGoldMinterStorage();
+		if (uint256(newPrice) < $.minGoldPrice || uint256(newPrice) > $.maxGoldPrice) {
+			revert Errors.PriceOutOfRange();
+		}
+
+		if (address($.goldPriceFeed) != address(0)) {
+			(, int256 oldPrice, , , ) = $.goldPriceFeed.latestRoundData();
+			if (oldPrice > 0) {
+				uint256 priceDiff = newPrice > oldPrice ?
+					uint256(newPrice - oldPrice) : uint256(oldPrice - newPrice);
+				if (priceDiff * 100 / uint256(oldPrice) > 20) revert Errors.PriceChangeTooLarge();
+			}
+		}
+
+		$.goldPriceFeed = newFeed;
+		emit UpdatePriceFeed(_goldPriceFeed);
     }
 
     function updateMaxPriceAge(uint256 _age) external onlyOwner {
