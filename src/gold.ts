@@ -4,6 +4,7 @@ import { formatEther, formatUnits } from 'viem';
 export const DATAFEED_DECIMALS = 8;
 export const GOLD_TOKEN_DECIMALS = 18;
 export const USD_TOKEN_MAX_DECIMALS = 6;
+export const GRAMS_PER_OUNCE = 31.1034768;
 
 export enum Levels {
     DEFAULT = 0,
@@ -89,12 +90,14 @@ export function calculateSwap({
     minGoldFee,
     minGoldFeeAmount,
 }: GoldMintQuote): GoldMintQuoteResult {
+    const gramPrice = goldPrice / GRAMS_PER_OUNCE;
+
     // Output digits
     const outputDecimals = isBuy ? GOLD_TOKEN_DECIMALS : USD_TOKEN_MAX_DECIMALS;
 
     // 1) Purely calculated output
     const outputAmount = NumDecimals(
-        isBuy ? inputAmount / goldPrice : inputAmount * goldPrice,
+        isBuy ? inputAmount / gramPrice : inputAmount * gramPrice,
         outputDecimals,
     );
 

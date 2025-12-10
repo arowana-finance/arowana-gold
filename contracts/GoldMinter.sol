@@ -387,8 +387,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         IERC20Exp usdToken = _getUSDToken($, _usdToken);
 
-        usdToken.safeTransferFrom(msg.sender, $.usdRecipient, _usdAmount);
-
         uint256 mintNonce = $.mintOrders.length;
 
         $.mintOrders.push(
@@ -402,6 +400,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
                 isSettled: false
             })
         );
+
+		usdToken.safeTransferFrom(msg.sender, $.usdRecipient, _usdAmount);
 
         emit RequestMint(mintNonce, msg.sender, address(usdToken), _usdAmount, _minGoldAmount);
 
@@ -432,8 +432,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
 		IERC20Exp usdToken = _getUSDToken($, _usdToken);
 
-        $.goldToken.safeTransferFrom(msg.sender, address(this), _goldAmount);
-
         uint256 burnNonce = $.burnOrders.length;
 
         $.burnOrders.push(
@@ -447,6 +445,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
                 isSettled: false
             })
         );
+
+		$.goldToken.safeTransferFrom(msg.sender, address(this), _goldAmount);
 
         emit RequestBurn(burnNonce, msg.sender, address(usdToken), _goldAmount, _minUsdAmount);
 
@@ -747,7 +747,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 		uint8 goldDecimals = $.goldToken.decimals();
 		uint8 usdtDecimals = $.USDT.decimals();
 		uint8 usdcDecimals = $.USDC.decimals();
-		
+
         emit Initialized(
             address($.goldToken),
             goldDecimals,
