@@ -82,6 +82,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
     event UpdateLevel(address indexed user, IGoldMinter.Levels level);
     event UpdateSlippage(uint16 newSlippage);
+    event UpdatePriceFeed(address newPriceFeed);
     event UpdateMaxPriceAge(uint256 newMaxPriceAge);
     event UpdateFees(uint16 newFees);
     event UpdateMinGold(uint256 minGoldAmount);
@@ -251,6 +252,13 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.slippage = _slippage;
         emit UpdateSlippage(_slippage);
+    }
+
+    function updatePriceFeed(address _goldPriceFeed) external onlyOwner {
+        if (_goldPriceFeed == address(0)) revert Errors.ZeroPriceFeed();
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.goldPriceFeed = IPriceFeed(_goldPriceFeed);
+        emit UpdatePriceFeed(_goldPriceFeed);
     }
 
     function updateMaxPriceAge(uint256 _age) external onlyOwner {
