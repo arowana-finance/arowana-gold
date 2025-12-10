@@ -393,7 +393,6 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         // Cache frequently used variables to reduce storage reads
         uint16 slippage_ = $.slippage;
         IGoldMinter.Levels tradeLevel_ = $.tradeLevel;
-        bool autoSettle_ = $.autoSettle;
 
         // Apply maximum 5% slippage
         uint256 expectedOutput = getUsdAmount(_usdToken, _goldAmount);
@@ -423,7 +422,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         emit RequestBurn(burnNonce, msg.sender, address(usdToken), _goldAmount, _minUsdAmount);
 
-        if (autoSettle_ && canBurn(IERC20Exp(usdToken), expectedOutput)) {
+        if ($.autoSettle && canBurn(IERC20Exp(usdToken), expectedOutput)) {
             _settleBurn(burnNonce, expectedOutput);
         }
     }
