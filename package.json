@@ -28,6 +28,7 @@
         "url": "git+https://github.com/arowana-finance/arowana-gold.git"
     },
     "scripts": {
+        "hardhat": "hardhat",
         "prettier": "prettier contracts/**/*.sol",
         "lint": "yarn prettier -c && eslint ignition/**/*.ts scripts/**/*.ts src/**/*.ts test/**/*.ts",
         "compile": "hardhat clean && hardhat compile",
