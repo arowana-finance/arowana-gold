@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData } from 'viem';
+import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData, zeroAddress } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('4198.21', 8); // Oracle price (per ounce)
@@ -23,7 +23,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         const { USDTMintAmt, USDCMintAmt, USDTTransferAmt, USDCTransferAmt } = fixtureData;
 
         const goldToken = await viem.deployContract('GoldToken');
-        await goldToken.write.initializeGoldToken([owner.account.address], {
+        await goldToken.write.initializeGoldToken([owner.account.address, zeroAddress], {
             account: owner.account,
         });
 

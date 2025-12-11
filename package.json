@@ -28,32 +28,30 @@
         "url": "git+https://github.com/arowana-finance/arowana-gold.git"
     },
     "scripts": {
-        "hardhat": "cross-env NODE_OPTIONS=\"--loader ts-node/esm/transpile-only --no-warnings=ExperimentalWarning\" hardhat",
         "prettier": "prettier contracts/**/*.sol",
         "lint": "yarn prettier -c && eslint ignition/**/*.ts scripts/**/*.ts src/**/*.ts test/**/*.ts",
-        "compile": "hardhat clean && hardhat compile && hardhat flatten:all && hardhat typechain:fix",
+        "compile": "hardhat clean && hardhat compile",
         "build": "tsc -p tsconfig.types.json --noEmit && rollup -c",
-        "deploy": "yarn hardhat run --no-compile ./scripts/deploy.ts",
+        "deploy": "hardhat run --no-compile ./scripts/deploy.ts",
         "simulate": "node node_modules/@chainlink/functions-toolkit/dist/index.js simulate --bundle",
         "docs:dev": "vitepress dev docs",
         "docs:build": "vitepress build docs",
         "docs:preview": "vitepress preview docs",
-        "test": "yarn hardhat test mocha --no-compile",
-        "coverage": "hardhat clean && yarn hardhat coverage --solcoverjs ./.solcover.cjs && istanbul-badges-readme --colors=\"red:50,yellow:60\""
+        "test": "hardhat test mocha --no-compile",
+        "coverage": "hardhat clean && hardhat coverage --solcoverjs ./.solcover.cjs && istanbul-badges-readme --colors=\"red:50,yellow:60\""
     },
     "dependencies": {
         "@nomicfoundation/hardhat-mocha": "^3.0.2",
         "@solidstate/hardhat-abi-exporter": "^3.0.0",
-        "bcrypt": "^6.0.0",
         "ethers": "^6.15.0",
-        "ethers-opt": "^1.0.7",
-        "node-gyp": "^11.4.2"
+        "ethers-opt": "^1.0.7"
     },
     "devDependencies": {
         "@arowanadao/eslint": "^1.0.8",
         "@arowanadao/rollup": "^1.0.8",
-        "@chainlink/contracts": "^1.4.0",
+        "@chainlink/contracts": "^1.5.0",
         "@chainlink/functions-toolkit": "^0.3.2",
+        "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
         "@nomicfoundation/hardhat-ethers": "^4.0.0",
         "@nomicfoundation/hardhat-ignition": "^3.0.0",
         "@nomicfoundation/hardhat-ignition-viem": "^3.0.0",

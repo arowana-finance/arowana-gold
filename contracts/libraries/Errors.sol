@@ -35,13 +35,13 @@ library Errors {
     error InvalidSignature();
     error ExpiredSignature();
     error InvalidNonceSignature();
-	error ZeroSignature();
+    error ZeroSignature();
 
     // ============ Oracle Errors ============
     error InvalidPrice();
     error PriceOutOfRange();
     error StalePrice();
-	error InvalidPriceAge();
+    error InvalidPriceAge();
     error InvalidOraclePrice();
     error OracleTooStale();
     error PriceChangeTooLarge();

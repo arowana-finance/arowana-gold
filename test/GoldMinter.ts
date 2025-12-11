@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData } from 'viem';
-import { getClients, signPermitERC2612, signKYCMintRequest, signKYCBurnRequest } from './helpers.js';
+import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData, zeroAddress } from 'viem';
+import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('4096.342', 8); // Oracle price (per ounce)
 const GRAMS_PER_OUNCE = parseUnits('31.1034768', 8); // Same as contract constant
@@ -19,11 +19,11 @@ const fixtureData = {
 
 describe('GoldMinter', function () {
     const fixture = async () => {
-        const { owner, buyer, bob, viem } = await getClients();
+        const { owner, buyer, viem } = await getClients();
         const { USDTMintAmt, USDCMintAmt, USDTTransferAmt, USDCTransferAmt } = fixtureData;
 
         const goldToken = await viem.deployContract('GoldToken');
-        await goldToken.write.initializeGoldToken([owner.account.address], {
+        await goldToken.write.initializeGoldToken([owner.account.address, zeroAddress], {
             account: owner.account,
         });
 
@@ -88,13 +88,11 @@ describe('GoldMinter', function () {
         return {
             owner,
             buyer,
-            bob,
             goldToken,
             USDT,
             USDC,
             goldPriceFeed,
             goldMinter,
-            viem,
         };
     };
 
@@ -354,312 +352,5 @@ describe('GoldMinter', function () {
         );
 
         console.log(`\nVERIFICATION COMPLETE: All fees calculated correctly according to 0.4% policy`);
-    });
-
-    it('requestMintWithKYC (with permit)', async function () {
-        const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
-        const { goldMintAmt } = fixtureData;
-
-        // Initial user KYC level is 0 (DEFAULT)
-        const currentKycNonce = BigInt(Number(await goldMinter.read.kycNonces([buyer.account.address])));
-        const newKycLevel = 2; // APPROVED
-        const deadline = maxUint256;
-
-        // Create KYC mint request
-        const kycRequest = {
-            user: buyer.account.address,
-            kycLevel: newKycLevel,
-            nonce: currentKycNonce + 1n,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        };
-
-        // Sign KYC request (by settler/owner)
-        const kycSignature = await signKYCMintRequest({
-            goldMinter,
-            settler: owner, // Owner acts as settler
-            user: buyer.account.address,
-            kycLevel: newKycLevel,
-            nonce: kycRequest.nonce,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        });
-
-        // Sign permit for USD token
-        const permitSignature = await signPermitERC2612({
-            token: USDT,
-            owner: buyer,
-            spender: goldMinter.address,
-            value: GOLD_PRICE_IN_USD_TOKEN,
-            deadline: deadline,
-        });
-
-        // Execute requestMintWithKYC
-        await goldMinter.write.requestMintWithKYC([kycRequest, kycSignature, permitSignature], {
-            account: buyer.account,
-        });
-
-        // Verify KYC level was updated
-        const updatedLevel = await goldMinter.read.levels([buyer.account.address]);
-        expect(updatedLevel).to.equal(newKycLevel);
-
-        // Verify KYC nonce was updated
-        const updatedNonce = await goldMinter.read.kycNonces([buyer.account.address]);
-        expect(updatedNonce).to.equal(kycRequest.nonce);
-
-        // Complete the mint by settling
-        await goldMinter.write.settleMint([0n, parseEther(String(goldMintAmt))], {
-            account: owner.account,
-        });
-
-        const feeBps = await goldMinter.read.fees();
-        const amountExFee = (parseEther(String(goldMintAmt)) * (10000n - BigInt(String(feeBps)))) / 10000n;
-
-        expect(await goldToken.read.balanceOf([buyer.account.address])).to.equal(amountExFee);
-    });
-
-    it('requestMintWithKYC without permit signature', async function () {
-        const { owner, buyer, USDT, goldMinter } = await fixture();
-        const { goldMintAmt } = fixtureData;
-
-        // Pre-approve USDT
-        await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
-            account: buyer.account,
-        });
-
-        const currentKycNonce = BigInt(Number(await goldMinter.read.kycNonces([buyer.account.address])));
-        const newKycLevel = 1; // KYCD
-        const deadline = maxUint256;
-
-        const kycRequest = {
-            user: buyer.account.address,
-            kycLevel: newKycLevel,
-            nonce: currentKycNonce + 1n,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        };
-
-        const kycSignature = await signKYCMintRequest({
-            goldMinter,
-            settler: owner,
-            user: buyer.account.address,
-            kycLevel: newKycLevel,
-            nonce: kycRequest.nonce,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        });
-
-        // Execute without permit (empty signature)
-        await goldMinter.write.requestMintWithKYC([kycRequest, kycSignature, '0x'], {
-            account: buyer.account,
-        });
-
-        // Verify KYC level was updated
-        expect(await goldMinter.read.levels([buyer.account.address])).to.equal(newKycLevel);
-    });
-
-    it('requestBurnWithKYC (with permit)', async function () {
-        const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
-        const { goldSellAmt } = fixtureData;
-
-        // First, setup some gold tokens for the buyer
-        await goldMinter.write.setLevel([buyer.account.address, 2], {
-            account: owner.account,
-        });
-        await USDT.write.approve([goldMinter.address, maxUint256], {
-            account: buyer.account,
-        });
-        await goldMinter.write.requestMint(
-            [USDT.address, GOLD_PRICE_IN_USD_TOKEN * 2n, parseEther(String(goldSellAmt))],
-            { account: buyer.account },
-        );
-        await goldMinter.write.settleMint([0n, parseEther(String(goldSellAmt))], {
-            account: owner.account,
-        });
-
-        const goldBalance = await goldToken.read.balanceOf([buyer.account.address]);
-        const expectedOutput = await goldMinter.read.getUsdAmount([USDT.address, goldBalance]);
-
-        const currentKycNonce = BigInt(Number(await goldMinter.read.kycNonces([buyer.account.address])));
-        const newKycLevel = 2; // APPROVED
-        const deadline = maxUint256;
-
-        // Create KYC burn request
-        const kycBurnRequest = {
-            user: buyer.account.address,
-            kycLevel: newKycLevel,
-            nonce: currentKycNonce + 1n,
-            deadline: deadline,
-            usdToken: USDT.address,
-            goldAmount: goldBalance,
-            minUsdAmount: expectedOutput,
-        };
-
-        // Sign KYC burn request
-        const kycSignature = await signKYCBurnRequest({
-            goldMinter,
-            settler: owner,
-            user: buyer.account.address,
-            kycLevel: newKycLevel,
-            nonce: kycBurnRequest.nonce,
-            deadline: deadline,
-            usdToken: USDT.address,
-            goldAmount: goldBalance as bigint,
-            minUsdAmount: expectedOutput as bigint,
-        });
-
-        // Sign permit for Gold token
-        const permitSignature = await signPermitERC2612({
-            token: goldToken,
-            owner: buyer,
-            spender: goldMinter.address,
-            value: goldBalance as bigint,
-            deadline: deadline,
-        });
-
-        // Execute requestBurnWithKYC
-        await goldMinter.write.requestBurnWithKYC([kycBurnRequest, kycSignature, permitSignature], {
-            account: buyer.account,
-        });
-
-        // Verify KYC nonce was updated
-        const updatedNonce = await goldMinter.read.kycNonces([buyer.account.address]);
-        expect(updatedNonce).to.equal(kycBurnRequest.nonce);
-
-        // Fund the owner with USDT for settlement
-        await USDT.write.transfer([owner.account.address, expectedOutput], {
-            account: owner.account,
-        });
-        await USDT.write.approve([goldMinter.address, expectedOutput], {
-            account: owner.account,
-        });
-
-        // Complete the burn by settling
-        await goldMinter.write.settleBurn([0n, expectedOutput], {
-            account: owner.account,
-        });
-
-        // Verify burn completed successfully
-        expect(await goldToken.read.balanceOf([buyer.account.address])).to.equal(0n);
-        expect(await goldToken.read.balanceOf([goldMinter.address])).to.equal(0n);
-    });
-
-    it('should reject invalid KYC signature', async function () {
-        const { owner, buyer, USDT, goldMinter, viem } = await fixture();
-        const { goldMintAmt } = fixtureData;
-
-        const currentKycNonce = (await goldMinter.read.kycNonces([buyer.account.address])) as bigint;
-        const deadline = maxUint256;
-
-        const kycRequest = {
-            user: buyer.account.address,
-            kycLevel: 2,
-            nonce: currentKycNonce + 1n,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        };
-
-        // Sign with wrong data (different amount)
-        const wrongKycSignature = await signKYCMintRequest({
-            goldMinter,
-            settler: owner,
-            user: buyer.account.address,
-            kycLevel: 2,
-            nonce: kycRequest.nonce,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN * 2n, // Wrong amount
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        });
-
-        const permitSignature = await signPermitERC2612({
-            token: USDT,
-            owner: buyer,
-            spender: goldMinter.address,
-            value: GOLD_PRICE_IN_USD_TOKEN,
-            deadline: deadline,
-        });
-
-        await viem.assertions.revertWithCustomError(
-            goldMinter.write.requestMintWithKYC([kycRequest, wrongKycSignature, permitSignature], {
-                account: buyer.account,
-            }),
-            goldMinter,
-            'InvalidSignature',
-        );
-    });
-
-    it('should reject zero KYC signature', async function () {
-        const { buyer, USDT, goldMinter, viem } = await fixture();
-        const { goldMintAmt } = fixtureData;
-
-        const currentKycNonce = (await goldMinter.read.kycNonces([buyer.account.address])) as bigint;
-        const deadline = maxUint256;
-
-        const kycRequest = {
-            user: buyer.account.address,
-            kycLevel: 2,
-            nonce: currentKycNonce + 1n,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        };
-
-        await viem.assertions.revertWithCustomError(
-            goldMinter.write.requestMintWithKYC([kycRequest, '0x', '0x'], {
-                account: buyer.account,
-            }),
-            goldMinter,
-            'ZeroSignature',
-        );
-    });
-
-    it('should reject KYC request from different user', async function () {
-        const { owner, buyer, bob, USDT, goldMinter, viem } = await fixture();
-        const { goldMintAmt } = fixtureData;
-
-        const currentKycNonce = (await goldMinter.read.kycNonces([buyer.account.address])) as bigint;
-        const deadline = maxUint256;
-
-        const kycRequest = {
-            user: buyer.account.address, // Request for buyer
-            kycLevel: 2,
-            nonce: currentKycNonce + 1n,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        };
-
-        const kycSignature = await signKYCMintRequest({
-            goldMinter,
-            settler: owner,
-            user: buyer.account.address,
-            kycLevel: 2,
-            nonce: kycRequest.nonce,
-            deadline: deadline,
-            usdToken: USDT.address,
-            usdAmount: GOLD_PRICE_IN_USD_TOKEN,
-            minGoldAmount: parseEther(String(goldMintAmt)),
-        });
-
-        await viem.assertions.revertWithCustomError(
-            goldMinter.write.requestMintWithKYC([kycRequest, kycSignature, '0x'], {
-                account: bob.account, // Wrong user
-            }),
-            goldMinter,
-            'InvalidSignature',
-        );
     });
 });

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { IERC20Exp } from './IERC20.sol';
-
 /**
  * @title IGoldMinter
  * @dev Interface containing all types and structures used by GoldMinter contracts
@@ -12,7 +10,7 @@ interface IGoldMinter {
     /// @dev Account Level enumeration for KYC status
     enum Levels {
         DEFAULT, // 0 - No KYC verification
-        KYCD,    // 1 - KYC verified
+        KYCD, // 1 - KYC verified
         APPROVED // 2 - Fully approved for all operations
     }
 
@@ -28,7 +26,7 @@ interface IGoldMinter {
      */
     struct MintOrder {
         address buyer;
-        IERC20Exp usdToken;
+        address usdToken;
         uint256 usdAmount;
         uint256 minGoldAmount;
         uint256 goldAmount;
@@ -48,7 +46,7 @@ interface IGoldMinter {
      */
     struct BurnOrder {
         address seller;
-        IERC20Exp usdToken;
+        address usdToken;
         uint256 goldAmount;
         uint256 minUsdAmount;
         uint256 usdAmount;

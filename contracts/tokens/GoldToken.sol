@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import { EnumerableSet } from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
+import { IBlacklistOracle } from '../interfaces/IBlacklistOracle.sol';
 import { Ownable } from '../libraries/Ownable.sol';
 import { InitializableERC20 } from './InitializableERC20.sol';
 
@@ -11,18 +12,51 @@ import { InitializableERC20 } from './InitializableERC20.sol';
 contract GoldToken is InitializableERC20, Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    IBlacklistOracle public blacklistOracle;
+
     EnumerableSet.AddressSet private _minters;
 
+    event BlacklistOracleChanged(address _blacklistOracle);
     event AddMinter(address newMinter);
     event RemoveMinter(address oldMinter);
 
-    function initializeGoldToken(address _initOwner) public {
+    error BlacklistedAddress(address addr);
+
+    function initializeGoldToken(address _initOwner, address _blacklistOracle) public {
         initializeToken('Arowana Gold Token', 'AGT', 18, 0);
 
         _minters.add(_initOwner);
         emit AddMinter(_initOwner);
 
+        if (_blacklistOracle != address(0)) {
+            changeBlacklistOracle(_blacklistOracle);
+        }
         _transferOwnership(_initOwner);
+    }
+
+    /**
+     * Blacklist related functions
+     */
+    function _update(address from, address to, uint256 value) internal virtual override {
+        if (address(blacklistOracle) != address(0)) {
+            address[] memory _black = new address[](2);
+
+            _black[0] = from;
+            _black[1] = to;
+
+            (bool _blacklisted, uint256 _blackIndex) = blacklistOracle.areBlacklisted(_black);
+
+            if (_blacklisted) {
+                revert BlacklistedAddress(_black[_blackIndex]);
+            }
+        }
+
+        super._update(from, to, value);
+    }
+
+    function changeBlacklistOracle(address _blacklistOracle) public virtual onlyOwner {
+        blacklistOracle = IBlacklistOracle(_blacklistOracle);
+        emit BlacklistOracleChanged(_blacklistOracle);
     }
 
     /**

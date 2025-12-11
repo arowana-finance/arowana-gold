@@ -1,25 +1,21 @@
 {
     "compilerOptions": {
-        "typeRoots": [
-            "./node_modules/@types",
-        ],
-        "target": "ES2022",
-        "lib": ["ES2016", "ES2021", "ES2022", "ESNext", "DOM"],
-        "module": "nodenext",
-        "moduleResolution": "nodenext",
-        "resolveJsonModule": false,
-        "esModuleInterop": true,
-        "forceConsistentCasingInFileNames": true,
+        "lib": ["ES2023"],
+        "module": "node16",
+        "target": "es2022",
         "strict": true,
-        "skipLibCheck": true
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "moduleResolution": "node16"
     },
     "include": [
+        "abi",
         "ignition",
         "scripts",
         "src",
         "test",
-        "typechain-types"
+        "types"
     ],
     "exclude": ["node_modules"],
-    "files": ["./hardhat.config.cts"]
+    "files": ["./hardhat.config.ts"]
 }
