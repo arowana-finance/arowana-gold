@@ -4,8 +4,8 @@
         "outDir": "./lib",
     },
     "include": [
-        "./src",
-        "./typechain-types"
+        "src",
+        "types"
     ],
     "files": []
 }

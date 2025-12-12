@@ -3,15 +3,69 @@ pragma solidity ^0.8.20;
 
 import { SafeERC20 } from '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import { ReentrancyGuardUpgradeable } from '@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol';
+import { PausableUpgradeable } from '@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol';
+import { EIP712Upgradeable } from '@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol';
+import { ECDSA } from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 import { IERC20Exp, IERC20Mintable } from './interfaces/IERC20.sol';
 import { IPriceFeed } from './interfaces/IPriceFeed.sol';
+import { IGoldMinter } from './interfaces/IGoldMinter.sol';
 import { WithSettler } from './libraries/WithSettler.sol';
 import { SigLib } from './libraries/SigLib.sol';
+import { Errors } from './libraries/Errors.sol';
 
-contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
+contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradeable, EIP712Upgradeable {
     using SigLib for bytes;
     using SafeERC20 for IERC20Exp;
     using SafeERC20 for IERC20Mintable;
+
+    // ============ Constants ============
+
+    // Unit conversion constants for ounce to gram conversion (8 decimals matches Oracle precision)
+    uint256 public constant GRAMS_PER_OUNCE = 3110347680; // 31.1034768 * 1e8 (8 decimal precision)
+    uint256 public constant CONVERSION_PRECISION = 1e8;
+
+    // EIP-712 type hashes
+    bytes32 public constant KYC_MINT_REQUEST_TYPEHASH =
+        keccak256(
+            'KYCMintRequest(address user,uint8 kycLevel,uint256 nonce,uint256 deadline,address usdToken,uint256 usdAmount,uint256 minGoldAmount)'
+        );
+
+    bytes32 public constant KYC_BURN_REQUEST_TYPEHASH =
+        keccak256(
+            'KYCBurnRequest(address user,uint8 kycLevel,uint256 nonce,uint256 deadline,address usdToken,uint256 goldAmount,uint256 minUsdAmount)'
+        );
+
+    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.GoldMinter")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant GoldMinterStorageLocation =
+        0x8cf47ae6e29ccadec338e18318c0b2861b9691ac34e27ee5f7478ced79517b00;
+
+    // ============ Storage ============
+
+    /// @custom:storage-location erc7201:openzeppelin.storage.GoldMinter
+    struct GoldMinterStorage {
+        IERC20Mintable goldToken;
+        IERC20Exp USDT;
+        IERC20Exp USDC;
+        IPriceFeed goldPriceFeed;
+        mapping(address => uint8) levels;
+        mapping(address => bool) amlBlacklist;
+        mapping(address => uint256) kycNonces;
+        IGoldMinter.MintOrder[] mintOrders;
+        IGoldMinter.BurnOrder[] burnOrders;
+        IGoldMinter.Levels tradeLevel;
+        uint16 slippage;
+        uint16 fees;
+        uint256 minGoldAmount;
+        uint256 minGoldFee;
+        uint256 minGoldFeeAmount;
+        bool autoSettle;
+        address usdRecipient;
+        uint256 maxPriceAge;
+        uint256 minGoldPrice; // 500e8 (8 decimals)
+        uint256 maxGoldPrice; // 10000e8 (8 decimals)
+    }
+
+    // ============ Events ============
 
     event RequestMint(
         uint256 indexed nonce,
@@ -30,16 +84,37 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
     );
     event SettleBurn(uint256 indexed nonce, uint256 usdAmount, bool success);
 
-    event UpdateLevel(address indexed user, Levels level);
+    event UpdateLevel(address indexed user, IGoldMinter.Levels level);
     event UpdateSlippage(uint16 newSlippage);
+    event UpdatePriceFeed(address newPriceFeed);
+    event UpdateMaxPriceAge(uint256 newMaxPriceAge);
     event UpdateFees(uint16 newFees);
     event UpdateMinGold(uint256 minGoldAmount);
     event UpdateMinGoldFee(uint256 minGoldFee);
     event UpdateMinGoldFeeAmount(uint256 minGoldFeeAmount);
     event UpdateAutoSettle(bool settle);
-
-    event UpdateTradingLevel(Levels level);
+    event UpdateTradingLevel(IGoldMinter.Levels level);
     event UpdateRecipient(address newRecipient);
+
+    event AMLBlacklisted(address indexed user, bool blacklisted);
+    event EmergencyPaused(address indexed by, bool paused);
+
+    event KYCMintRequested(
+        address indexed user,
+        IGoldMinter.Levels newLevel,
+        uint256 indexed nonce,
+        address usdToken,
+        uint256 usdAmount,
+        uint256 minGoldAmount
+    );
+    event KYCBurnRequested(
+        address indexed user,
+        IGoldMinter.Levels newLevel,
+        uint256 indexed nonce,
+        address usdToken,
+        uint256 goldAmount,
+        uint256 minUsdAmount
+    );
 
     event Initialized(
         address goldToken,
@@ -48,187 +123,283 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
         uint8 USDTDecimals,
         address USDC,
         uint8 USDCDecimals,
-        address goldPriceFeed,
-        address goldReserveFeed
+        address goldPriceFeed
     );
 
-    IERC20Mintable public goldToken;
-
-    IERC20Exp public USDT;
-    IERC20Exp public USDC;
-
-    IPriceFeed public goldPriceFeed;
-    IPriceFeed public goldReserveFeed;
-
-    /// @dev Account Level
-    enum Levels {
-        DEFAULT, // 0
-        KYCD, // 1
-        APPROVED // 2
-    }
-
-    mapping(address => uint8) public levels;
-
-    struct MintOrder {
-        address buyer; // Buyer address
-        IERC20Exp usdToken; // USDT / USDC address
-        uint256 usdAmount; // Buying Gold with this amount
-        uint256 minGoldAmount; // Minimum gold output that customers desire
-        uint256 goldAmount; // Paid gold amount
-        bool success; // Mark if order is complete with expected output
-        bool isSettled; // Mark if order is processed by backend
-    }
-    MintOrder[] public mintOrders;
-
-    struct BurnOrder {
-        address seller;
-        IERC20Exp usdToken; // USDT / USDC address
-        uint256 goldAmount;
-        uint256 minUsdAmount;
-        uint256 usdAmount;
-        bool success;
-        bool isSettled;
-    }
-    BurnOrder[] public burnOrders;
-
-    Levels public tradeLevel = Levels.DEFAULT;
-
-    uint16 public slippage = 500;
-    /// @dev Basis Point, 0.5%
-    uint16 public fees = 50;
-
-    uint256 public minGoldAmount = 0.02 ether;
-    uint256 public minGoldFee = 0.01 ether;
-    uint256 public minGoldFeeAmount = 1 ether;
-
-    bool public autoSettle = true;
-
-    /// @dev Address to receive USDC / USDT from customers (to buy gold and replenish reserves)
-    address public usdRecipient;
-
-    /// @dev Temporary approach to avoid stack too deep error
-    function _emitInitialize() internal {
-        emit UpdateSlippage(slippage);
-        emit UpdateFees(fees);
-        emit UpdateMinGold(minGoldAmount);
-        emit UpdateMinGoldFee(minGoldFee);
-        emit UpdateMinGoldFeeAmount(minGoldFeeAmount);
-        emit UpdateAutoSettle(autoSettle);
-
-        emit UpdateTradingLevel(tradeLevel);
-        emit UpdateRecipient(usdRecipient);
-
-        emit Initialized(
-            address(goldToken),
-            goldToken.decimals(),
-            address(USDT),
-            USDT.decimals(),
-            address(USDC),
-            USDC.decimals(),
-            address(goldPriceFeed),
-            address(goldReserveFeed)
-        );
-    }
+    // ============ Constructor ============
 
     function initializeGoldMinter(
         address _goldToken,
         address _USDT,
         address _USDC,
         address _goldPriceFeed,
-        address _goldReserveFeed,
         address _usdRecipient,
         address _owner,
         bool _autoSettle
     ) public virtual initializer {
-        goldToken = IERC20Mintable(_goldToken);
+        if (_goldToken == address(0)) revert Errors.ZeroGoldToken();
+        if (_USDT == address(0)) revert Errors.ZeroUSDT();
+        if (_USDC == address(0)) revert Errors.ZeroUSDC();
+        if (_goldPriceFeed == address(0)) revert Errors.ZeroPriceFeed();
+        if (_usdRecipient == address(0)) revert Errors.ZeroRecipient();
+        if (_owner == address(0)) revert Errors.ZeroOwner();
 
-        USDT = IERC20Exp(_USDT);
-        USDC = IERC20Exp(_USDC);
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
 
-        goldPriceFeed = IPriceFeed(_goldPriceFeed);
-        goldReserveFeed = IPriceFeed(_goldReserveFeed);
+        $.goldToken = IERC20Mintable(_goldToken);
+        $.USDT = IERC20Exp(_USDT);
+        $.USDC = IERC20Exp(_USDC);
+        $.goldPriceFeed = IPriceFeed(_goldPriceFeed);
 
-        slippage = 500; // 5%
-        fees = 50; // 0.5%
-        minGoldAmount = 0.02 ether;
-        minGoldFee = 0.01 ether;
-        minGoldFeeAmount = 1 ether;
-        autoSettle = _autoSettle;
-        //tradeLevel = Levels.APPROVED;
-
-        usdRecipient = _usdRecipient;
+        $.slippage = 500; // 5%
+        $.fees = 40; // 0.4%
+        $.minGoldAmount = 1 ether; // 1 gram
+        $.minGoldFee = 0.01 ether; // 0.01 gram
+        $.minGoldFeeAmount = 1 ether; // 1 gram
+        $.autoSettle = _autoSettle;
+        $.tradeLevel = IGoldMinter.Levels.KYCD;
+        $.usdRecipient = _usdRecipient;
+        $.maxPriceAge = 10 minutes;
+        // Oracle price validation limits (ounce-based, matches Oracle format)
+        $.minGoldPrice = 500e8; // $500/ounce
+        $.maxGoldPrice = 10000e8; // $10,000/ounce
 
         __ReentrancyGuard_init();
+        __Pausable_init();
+        __EIP712_init('GoldMinter', '1');
         _initializeSettler(_owner);
         _emitInitialize();
     }
 
-    function getGoldAmount(address usdToken, uint256 usdAmount) public view returns (uint256) {
-        (uint256 latestPrice, uint8 priceOracleDecimals) = (
-            uint256(goldPriceFeed.latestAnswer()),
-            goldPriceFeed.decimals()
-        );
-        uint8 goldDecimals = goldToken.decimals();
-        uint8 usdDecimals = IERC20Exp(usdToken).decimals();
-        // (10 ** 6) * (10 ** 10) / 299315000000
-        return (usdAmount * 10 ** (priceOracleDecimals + goldDecimals - usdDecimals)) / latestPrice;
+    // ============ External Functions ============
+
+    /// @notice Request mint with KYC signature and optional permit (recommended flow)
+    function requestMintWithKYC(
+        IGoldMinter.KYCMintRequest memory kycRequest,
+        bytes memory kycSignature,
+        bytes memory permitSignature
+    ) external whenNotPaused {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        if (msg.sender != kycRequest.user) revert Errors.InvalidSignature();
+        if (kycSignature.length == 0) revert Errors.ZeroSignature();
+
+        // Verify KYC signature from backend (optional)
+        _processKYC($, kycRequest, kycSignature);
+
+        // Handle permit if provided
+        _processUSDPermit($, kycRequest.usdToken, kycRequest.usdAmount, kycRequest.deadline, permitSignature);
+
+        // Proceed with mint request
+        requestMint(kycRequest.usdToken, kycRequest.usdAmount, kycRequest.minGoldAmount);
     }
 
-    function getUsdAmount(address usdToken, uint256 goldAmount) public view returns (uint256) {
-        (uint256 latestPrice, uint8 priceOracleDecimals) = (
-            uint256(goldPriceFeed.latestAnswer()),
-            goldPriceFeed.decimals()
-        );
-        uint8 goldDecimals = goldToken.decimals();
-        uint8 usdDecimals = IERC20Exp(usdToken).decimals();
-        // (10 ** 8 * 299315000000 / 10 ** 10)
-        return (goldAmount * latestPrice) / 10 ** (priceOracleDecimals + goldDecimals - usdDecimals);
+    /// @notice Request mint with ERC-2612 permit (no KYC update, requires pre-set KYC level)
+    function requestMintPermit(
+        address _usdToken,
+        uint256 _usdAmount,
+        uint256 _minGoldAmount,
+        uint256 _sigDeadline,
+        bytes memory _signature
+    ) external whenNotPaused {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        _processUSDPermit($, _usdToken, _usdAmount, _sigDeadline, _signature);
+
+        requestMint(_usdToken, _usdAmount, _minGoldAmount);
     }
 
-    function canMint(uint256 goldAmount) public view returns (bool) {
-        uint256 tokenSupply = goldToken.totalSupply();
-        uint8 tokenDecimals = goldToken.decimals();
-        uint8 goldDecimals = goldReserveFeed.decimals();
-        uint256 goldReserves = uint256(goldReserveFeed.latestAnswer()) * 10 ** (tokenDecimals - goldDecimals);
-        return goldReserves >= (tokenSupply + goldAmount);
+    /// @notice Request burn with KYC signature and optional permit (recommended flow)
+    function requestBurnWithKYC(
+        IGoldMinter.KYCBurnRequest memory kycRequest,
+        bytes memory kycSignature,
+        bytes memory permitSignature
+    ) external whenNotPaused {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        if (msg.sender != kycRequest.user) revert Errors.InvalidSignature();
+        if (kycSignature.length == 0) revert Errors.ZeroSignature();
+
+        // Verify KYC signature from backend (optional)
+        _processKYCBurn($, kycRequest, kycSignature);
+
+        // Handle permit if provided
+        _processGoldPermit($, kycRequest.goldAmount, kycRequest.deadline, permitSignature);
+
+        // Proceed with burn request
+        requestBurn(kycRequest.usdToken, kycRequest.goldAmount, kycRequest.minUsdAmount);
     }
 
-    function canBurn(IERC20Exp usdToken, uint256 usdAmount) public view returns (bool) {
-        return usdToken.balanceOf(usdRecipient) >= usdAmount;
+    /// @notice Request burn with ERC-2612 permit (no KYC update, requires pre-set KYC level)
+    function requestBurnPermit(
+        address _usdToken,
+        uint256 _goldAmount,
+        uint256 _minUsdAmount,
+        uint256 _sigDeadline,
+        bytes memory _signature
+    ) external whenNotPaused {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        // Process Gold permit
+        _processGoldPermit($, _goldAmount, _sigDeadline, _signature);
+
+        requestBurn(_usdToken, _goldAmount, _minUsdAmount);
     }
 
-    /// @dev Return fee amount in Gold
-    function calculateGoldFee(uint256 _goldAmount) public view returns (uint256) {
-        if (_goldAmount < minGoldFeeAmount) {
-            return minGoldFee;
+    function setLevel(address user, IGoldMinter.Levels level) external onlySettlers {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.levels[user] = uint8(level);
+        emit UpdateLevel(user, level);
+    }
+
+    function updateSlippage(uint16 _slippage) external onlyOwner {
+        if (_slippage >= 500) revert Errors.Overflow();
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.slippage = _slippage;
+        emit UpdateSlippage(_slippage);
+    }
+
+    function updatePriceFeed(address _goldPriceFeed) external onlyOwner {
+        if (_goldPriceFeed == address(0)) revert Errors.ZeroPriceFeed();
+
+        IPriceFeed newFeed = IPriceFeed(_goldPriceFeed);
+
+        (, int256 newPrice, , uint256 newUpdatedAt, ) = newFeed.latestRoundData();
+        if (newPrice <= 0) revert Errors.InvalidOraclePrice();
+        if (block.timestamp - newUpdatedAt > 1 hours) revert Errors.OracleTooStale();
+
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        if (uint256(newPrice) < $.minGoldPrice || uint256(newPrice) > $.maxGoldPrice) {
+            revert Errors.PriceOutOfRange();
         }
-        return (_goldAmount * fees) / 10000;
+
+        if (address($.goldPriceFeed) != address(0)) {
+            (, int256 oldPrice, , , ) = $.goldPriceFeed.latestRoundData();
+            if (oldPrice > 0) {
+                uint256 priceDiff = newPrice > oldPrice
+                    ? uint256(newPrice - oldPrice)
+                    : uint256(oldPrice - newPrice);
+                if ((priceDiff * 100) / uint256(oldPrice) > 20) revert Errors.PriceChangeTooLarge();
+            }
+        }
+
+        $.goldPriceFeed = newFeed;
+        emit UpdatePriceFeed(_goldPriceFeed);
     }
 
-    function requestMint(address _usdToken, uint256 _usdAmount, uint256 _minGoldAmount) public nonReentrant {
+    function updateMaxPriceAge(uint256 _age) external onlyOwner {
+        if (_age < 5 minutes || _age > 30 minutes) revert Errors.InvalidPriceAge();
+
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.maxPriceAge = _age;
+        emit UpdateMaxPriceAge(_age);
+    }
+
+    function updateFees(uint16 _fees) external onlyOwner {
+        if (_fees >= 500) revert Errors.Overflow();
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.fees = _fees;
+        emit UpdateFees(_fees);
+    }
+
+    function updateMinGold(uint256 _minGold) external onlyOwner {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.minGoldAmount = _minGold;
+        emit UpdateMinGold(_minGold);
+    }
+
+    function updateMinGoldFee(uint256 _minGoldFee) external onlyOwner {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.minGoldFee = _minGoldFee;
+        emit UpdateMinGoldFee(_minGoldFee);
+    }
+
+    function updateMinGoldFeeAmount(uint256 _minGoldFeeAmount) external onlyOwner {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.minGoldFeeAmount = _minGoldFeeAmount;
+        emit UpdateMinGoldFeeAmount(_minGoldFeeAmount);
+    }
+
+    function updateAutoSettle() external onlyOwner {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.autoSettle = !$.autoSettle;
+        emit UpdateAutoSettle($.autoSettle);
+    }
+
+    function updateTradingLevel(IGoldMinter.Levels level) external onlyOwner {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.tradeLevel = level;
+        emit UpdateTradingLevel(level);
+    }
+
+    function updateRecipient(address _usdRecipient) external onlyOwner {
+        if (_usdRecipient == address(0)) revert Errors.ZeroUSDRecipient();
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.usdRecipient = _usdRecipient;
+        emit UpdateRecipient(_usdRecipient);
+    }
+
+    function setAMLBlacklist(address user, bool blacklisted) external onlySettlers {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.amlBlacklist[user] = blacklisted;
+        emit AMLBlacklisted(user, blacklisted);
+    }
+
+    function emergencyPause() external onlyOwner {
+        _pause();
+        emit EmergencyPaused(msg.sender, true);
+    }
+
+    function emergencyUnpause() external onlyOwner {
+        _unpause();
+        emit EmergencyPaused(msg.sender, false);
+    }
+
+    function isAMLBlacklisted(address user) external view returns (bool) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.amlBlacklist[user];
+    }
+
+    // ============ Public Functions ============
+
+    function settleMint(uint256 mintNonce, uint256 goldAmount) public onlyOwner {
+        _settleMint(mintNonce, goldAmount);
+    }
+
+    function settleBurn(uint256 burnNonce, uint256 usdAmount) public onlyOwner {
+        _settleBurn(burnNonce, usdAmount);
+    }
+
+    /// @notice Request mint with pre-set KYC level (requires approval in advance)
+    function requestMint(
+        address _usdToken,
+        uint256 _usdAmount,
+        uint256 _minGoldAmount
+    ) public nonReentrant whenNotPaused {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        // Cache frequently used variables to reduce storage reads
+        uint16 slippage_ = $.slippage;
+        IGoldMinter.Levels tradeLevel_ = $.tradeLevel;
+
         // Apply maximum 5% slippage
         uint256 expectedOutput = getGoldAmount(_usdToken, _usdAmount);
 
-        require(
-            ((expectedOutput * (10000 + slippage)) / 10000) > _minGoldAmount &&
-                _minGoldAmount > ((expectedOutput * (10000 - slippage)) / 10000),
-            'Underpriced'
-        );
-        require(_minGoldAmount >= minGoldAmount, 'SmallAmount');
+        // Validate request using extracted functions
+        _validateSlippage(expectedOutput, _minGoldAmount, slippage_);
+        _validateMinimumAmount(_minGoldAmount, $.minGoldAmount);
         // commented out here to allow overbooking over reserves
-        //require(canMint(_minGoldAmount), 'Oversupply');
-        require(levels[msg.sender] >= uint(tradeLevel), 'Underlevel');
+        _validateUserPermissions($, tradeLevel_);
 
-        IERC20Exp usdToken = _usdToken == address(USDT) ? USDT : USDC;
+        IERC20Exp usdToken = _getUSDToken($, _usdToken);
 
-        usdToken.safeTransferFrom(msg.sender, usdRecipient, _usdAmount);
+        uint256 mintNonce = $.mintOrders.length;
 
-        uint256 mintNonce = mintOrders.length;
+        usdToken.safeTransferFrom(msg.sender, $.usdRecipient, _usdAmount);
 
-        mintOrders.push(
-            MintOrder({
+        $.mintOrders.push(
+            IGoldMinter.MintOrder({
                 buyer: msg.sender,
-                usdToken: usdToken,
+                usdToken: address(usdToken),
                 usdAmount: _usdAmount,
                 minGoldAmount: _minGoldAmount,
                 goldAmount: 0,
@@ -239,80 +410,39 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
 
         emit RequestMint(mintNonce, msg.sender, address(usdToken), _usdAmount, _minGoldAmount);
 
-        if (autoSettle && canMint(expectedOutput)) {
+        if ($.autoSettle) {
             _settleMint(mintNonce, expectedOutput);
         }
     }
 
-    function requestMintPermit(
+    /// @notice Request burn with pre-set KYC level (requires approval in advance)
+    function requestBurn(
         address _usdToken,
-        uint256 _usdAmount,
-        uint256 _minGoldAmount,
-        uint256 _sigDeadline,
-        bytes memory _signature
-    ) external {
-        (uint8 v, bytes32 r, bytes32 s) = _signature.toVRS();
-        IERC20Exp usdToken = _usdToken == address(USDT) ? USDT : USDC;
-        usdToken.permit(msg.sender, address(this), _usdAmount, _sigDeadline, v, r, s);
+        uint256 _goldAmount,
+        uint256 _minUsdAmount
+    ) public nonReentrant whenNotPaused {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
 
-        requestMint(_usdToken, _usdAmount, _minGoldAmount);
-    }
+        // Cache frequently used variables to reduce storage reads
+        uint16 slippage_ = $.slippage;
+        IGoldMinter.Levels tradeLevel_ = $.tradeLevel;
 
-    function settleMint(uint256 mintNonce, uint256 goldAmount) public onlySettlers {
-        _settleMint(mintNonce, goldAmount);
-    }
-
-    function _settleMint(uint256 mintNonce, uint256 goldAmount) internal {
-        require(mintNonce < mintOrders.length, 'Invalid nonce');
-        require(!mintOrders[mintNonce].isSettled, 'Already settled');
-
-        bool success = goldAmount >= mintOrders[mintNonce].minGoldAmount && canMint(goldAmount);
-
-        // Issue refund if deposited usd is insufficient
-        if (!success) {
-            (IERC20Exp usdToken, uint256 usdAmount) = (
-                mintOrders[mintNonce].usdToken,
-                mintOrders[mintNonce].usdAmount
-            );
-
-            usdToken.safeTransferFrom(usdRecipient, mintOrders[mintNonce].buyer, usdAmount);
-
-            // Mint desired gold amount
-        } else {
-            mintOrders[mintNonce].goldAmount = goldAmount;
-
-            uint256 feeAmount = calculateGoldFee(goldAmount);
-
-            goldToken.mint(usdRecipient, feeAmount);
-            goldToken.mint(mintOrders[mintNonce].buyer, goldAmount - feeAmount);
-        }
-
-        mintOrders[mintNonce].success = success;
-        mintOrders[mintNonce].isSettled = true;
-
-        emit SettleMint(mintNonce, goldAmount, success);
-    }
-
-    function requestBurn(address _usdToken, uint256 _goldAmount, uint256 _minUsdAmount) public nonReentrant {
         // Apply maximum 5% slippage
         uint256 expectedOutput = getUsdAmount(_usdToken, _goldAmount);
 
-        require(
-            ((expectedOutput * (10000 + slippage)) / 10000) >= _minUsdAmount &&
-                _minUsdAmount > ((expectedOutput * (10000 - slippage)) / 10000),
-            'Underpriced'
-        );
-        require(_goldAmount >= minGoldAmount, 'SmallAmount');
-        require(levels[msg.sender] >= uint(tradeLevel), 'Underlevel');
+        // Validate request using extracted functions
+        _validateSlippage(expectedOutput, _minUsdAmount, slippage_);
+        _validateMinimumAmount(_goldAmount, $.minGoldAmount);
+        _validateUserPermissions($, tradeLevel_);
 
-        goldToken.safeTransferFrom(msg.sender, address(this), _goldAmount);
+        IERC20Exp usdToken = _getUSDToken($, _usdToken);
 
-        uint256 burnNonce = burnOrders.length;
+        uint256 burnNonce = $.burnOrders.length;
 
-        burnOrders.push(
-            BurnOrder({
+        $.burnOrders.push(
+            IGoldMinter.BurnOrder({
                 seller: msg.sender,
-                usdToken: IERC20Exp(_usdToken),
+                usdToken: address(usdToken),
                 goldAmount: _goldAmount,
                 minUsdAmount: _minUsdAmount,
                 usdAmount: 0,
@@ -321,101 +451,405 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable {
             })
         );
 
-        emit RequestBurn(burnNonce, msg.sender, _usdToken, _goldAmount, _minUsdAmount);
+        $.goldToken.safeTransferFrom(msg.sender, address(this), _goldAmount);
 
-        if (autoSettle && canBurn(IERC20Exp(_usdToken), expectedOutput)) {
+        emit RequestBurn(burnNonce, msg.sender, address(usdToken), _goldAmount, _minUsdAmount);
+
+        if ($.autoSettle && canBurn(IERC20Exp(usdToken), expectedOutput)) {
             _settleBurn(burnNonce, expectedOutput);
         }
     }
 
-    function requestBurnPermit(
-        address _usdToken,
-        uint256 _goldAmount,
-        uint256 _minUsdAmount,
-        uint256 _sigDeadline,
-        bytes memory _signature
-    ) external {
-        (uint8 v, bytes32 r, bytes32 s) = _signature.toVRS();
-        goldToken.permit(msg.sender, address(this), _goldAmount, _sigDeadline, v, r, s);
+    function getGoldAmount(address usdToken, uint256 usdAmount) public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
 
-        requestBurn(_usdToken, _goldAmount, _minUsdAmount);
+        (uint256 latestPrice, uint8 priceOracleDecimals) = _getValidatedPrice();
+        (uint8 goldDecimals, , , ) = _getTokenDecimals($);
+        uint8 usdDecimals = IERC20Exp(usdToken).decimals();
+        // (10 ** 6) * (10 ** 10) / 299315000000
+        return (usdAmount * 10 ** (priceOracleDecimals + goldDecimals - usdDecimals)) / latestPrice;
     }
 
-    function settleBurn(uint256 burnNonce, uint256 usdAmount) public onlySettlers {
-        _settleBurn(burnNonce, usdAmount);
+    function getUsdAmount(address usdToken, uint256 goldAmount) public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        (uint256 latestPrice, uint8 priceOracleDecimals) = _getValidatedPrice();
+        (uint8 goldDecimals, , , ) = _getTokenDecimals($);
+        uint8 usdDecimals = IERC20Exp(usdToken).decimals();
+        // (10 ** 8 * 299315000000 / 10 ** 10)
+        return (goldAmount * latestPrice) / 10 ** (priceOracleDecimals + goldDecimals - usdDecimals);
     }
 
-    function _settleBurn(uint256 burnNonce, uint256 usdAmount) internal {
-        require(burnNonce < burnOrders.length, 'Invalid nonce');
-        require(!burnOrders[burnNonce].isSettled, 'Already settled');
+    function canBurn(IERC20Exp usdToken, uint256 usdAmount) public view returns (bool) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return usdToken.balanceOf($.usdRecipient) >= usdAmount;
+    }
 
-        IERC20Exp usdToken = burnOrders[burnNonce].usdToken;
-        uint256 goldAmount = burnOrders[burnNonce].goldAmount;
+    function fees() public view returns (uint16) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.fees;
+    }
+    function goldToken() public view returns (address) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return address($.goldToken);
+    }
+    function USDT() public view returns (address) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return address($.USDT);
+    }
+    function USDC() public view returns (address) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return address($.USDC);
+    }
+    function slippage() public view returns (uint16) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.slippage;
+    }
+    function tradeLevel() public view returns (IGoldMinter.Levels) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.tradeLevel;
+    }
+    function minGoldAmount() public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.minGoldAmount;
+    }
+    function minGoldFee() public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.minGoldFee;
+    }
+    function minGoldFeeAmount() public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.minGoldFeeAmount;
+    }
+    function kycNonces(address _target) public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.kycNonces[_target];
+    }
+    function levels(address _target) public view returns (uint8) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.levels[_target];
+    }
 
-        bool success = usdAmount >= burnOrders[burnNonce].minUsdAmount && canBurn(usdToken, usdAmount);
+    /// @dev Return fee amount in Gold
+    function calculateGoldFee(uint256 _goldAmount) public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
 
+        // Cache fee variables for efficiency
+        uint256 minGoldFeeAmount_ = $.minGoldFeeAmount;
+        uint256 minGoldFee_ = $.minGoldFee;
+        uint16 fees_ = $.fees;
+
+        if (_goldAmount < minGoldFeeAmount_) {
+            return minGoldFee_;
+        }
+        return (_goldAmount * fees_) / 10000;
+    }
+
+    // ============ Internal Functions ============
+
+    function _settleMint(uint256 mintNonce, uint256 goldAmount) internal {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        if (mintNonce >= $.mintOrders.length) revert Errors.InvalidNonce();
+        if ($.mintOrders[mintNonce].isSettled) revert Errors.AlreadySettled();
+
+        bool success = goldAmount >= $.mintOrders[mintNonce].minGoldAmount;
+
+        // Issue refund if deposited usd is insufficient
         if (!success) {
-            goldToken.safeTransfer(burnOrders[burnNonce].seller, goldAmount);
+            (IERC20Exp usdToken, uint256 usdAmount) = (
+                IERC20Exp($.mintOrders[mintNonce].usdToken),
+                $.mintOrders[mintNonce].usdAmount
+            );
+
+            usdToken.safeTransferFrom($.usdRecipient, $.mintOrders[mintNonce].buyer, usdAmount);
+
+            // Mint desired gold amount
         } else {
-            burnOrders[burnNonce].usdAmount = usdAmount;
+            $.mintOrders[mintNonce].goldAmount = goldAmount;
 
             uint256 feeAmount = calculateGoldFee(goldAmount);
 
-            goldToken.burn(goldAmount - feeAmount);
-            goldToken.safeTransfer(usdRecipient, feeAmount);
-            usdToken.safeTransferFrom(usdRecipient, burnOrders[burnNonce].seller, usdAmount);
+            $.goldToken.mint($.usdRecipient, feeAmount);
+            $.goldToken.mint($.mintOrders[mintNonce].buyer, goldAmount - feeAmount);
         }
 
-        burnOrders[burnNonce].success = success;
-        burnOrders[burnNonce].isSettled = true;
+        $.mintOrders[mintNonce].success = success;
+        $.mintOrders[mintNonce].isSettled = true;
+
+        emit SettleMint(mintNonce, goldAmount, success);
+    }
+
+    function _settleBurn(uint256 burnNonce, uint256 usdAmount) internal {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        if (burnNonce >= $.burnOrders.length) revert Errors.InvalidNonce();
+        if ($.burnOrders[burnNonce].isSettled) revert Errors.AlreadySettled();
+
+        IERC20Exp usdToken = IERC20Exp($.burnOrders[burnNonce].usdToken);
+        uint256 goldAmount = $.burnOrders[burnNonce].goldAmount;
+
+        bool success = usdAmount >= $.burnOrders[burnNonce].minUsdAmount && canBurn(usdToken, usdAmount);
+
+        if (!success) {
+            $.goldToken.safeTransfer($.burnOrders[burnNonce].seller, goldAmount);
+        } else {
+            $.burnOrders[burnNonce].usdAmount = usdAmount;
+
+            uint256 feeAmount = calculateGoldFee(goldAmount);
+            uint256 usdAfterFee = getUsdAmount(address(usdToken), goldAmount - feeAmount);
+
+            $.goldToken.burn(goldAmount - feeAmount);
+            $.goldToken.safeTransfer($.usdRecipient, feeAmount);
+            usdToken.safeTransferFrom($.usdRecipient, $.burnOrders[burnNonce].seller, usdAfterFee);
+        }
+
+        $.burnOrders[burnNonce].success = success;
+        $.burnOrders[burnNonce].isSettled = true;
 
         emit SettleBurn(burnNonce, usdAmount, success);
     }
 
-    function setLevel(address user, Levels level) external onlySettlers {
-        levels[user] = uint8(level);
-        emit UpdateLevel(user, level);
+    /// @dev Get cached decimals for tokens to avoid repeated calls
+    function _getTokenDecimals(
+        GoldMinterStorage storage $
+    )
+        internal
+        view
+        returns (uint8 goldDecimals, uint8 usdtDecimals, uint8 usdcDecimals, uint8 oracleDecimals)
+    {
+        return ($.goldToken.decimals(), $.USDT.decimals(), $.USDC.decimals(), $.goldPriceFeed.decimals());
     }
 
-    function updateSlippage(uint8 _slippage) external onlyOwner {
-        require(_slippage < 1000, 'OVERFLOW');
-        slippage = _slippage;
-        emit UpdateSlippage(_slippage);
+    /// @dev Common validation logic for user permissions
+    function _validateUserPermissions(
+        GoldMinterStorage storage $,
+        IGoldMinter.Levels requiredLevel
+    ) internal view {
+        if ($.levels[msg.sender] < uint(requiredLevel)) revert Errors.Underlevel();
+        if ($.amlBlacklist[msg.sender]) revert Errors.AMLBlocked();
     }
 
-    function updateFees(uint8 _fees) external onlyOwner {
-        require(_fees < 1000, 'OVERFLOW');
-        fees = _fees;
-        emit UpdateFees(_fees);
+    /// @dev Common slippage validation logic
+    function _validateSlippage(uint256 expectedOutput, uint256 minAmount, uint16 slippage_) internal pure {
+        if (
+            !(((expectedOutput * (10000 + slippage_)) / 10000) >= minAmount &&
+                minAmount >= ((expectedOutput * (10000 - slippage_)) / 10000))
+        ) revert Errors.Underpriced();
     }
 
-    function updateMinGold(uint256 _minGold) external onlyOwner {
-        minGoldAmount = _minGold;
-        emit UpdateMinGold(_minGold);
+    /// @dev Common minimum amount validation
+    function _validateMinimumAmount(uint256 amount, uint256 minRequired) internal pure {
+        if (amount < minRequired) revert Errors.SmallAmount();
     }
 
-    function updateMinGoldFee(uint256 _minGoldFee) external onlyOwner {
-        minGoldFee = _minGoldFee;
-        emit UpdateMinGoldFee(_minGoldFee);
+    /// @dev Process KYC verification and update user level
+    function _processKYC(
+        GoldMinterStorage storage $,
+        IGoldMinter.KYCMintRequest memory kycRequest,
+        bytes memory kycSignature
+    ) internal {
+        if (kycSignature.length > 0) {
+            if (!_verifyKYCMintSignature(kycRequest, kycSignature)) {
+                revert Errors.InvalidSignature();
+            }
+
+            // Update KYC level and nonce
+            $.levels[msg.sender] = kycRequest.kycLevel;
+            $.kycNonces[msg.sender] = kycRequest.nonce;
+
+            emit UpdateLevel(msg.sender, IGoldMinter.Levels(kycRequest.kycLevel));
+            emit KYCMintRequested(
+                msg.sender,
+                IGoldMinter.Levels(kycRequest.kycLevel),
+                kycRequest.nonce,
+                kycRequest.usdToken,
+                kycRequest.usdAmount,
+                kycRequest.minGoldAmount
+            );
+        }
     }
 
-    function updateMinGoldFeeAmount(uint256 _minGoldFeeAmount) external onlyOwner {
-        minGoldFeeAmount = _minGoldFeeAmount;
-        emit UpdateMinGoldFeeAmount(_minGoldFeeAmount);
+    /// @dev Process KYC verification for burn requests
+    function _processKYCBurn(
+        GoldMinterStorage storage $,
+        IGoldMinter.KYCBurnRequest memory kycRequest,
+        bytes memory kycSignature
+    ) internal {
+        if (kycSignature.length > 0) {
+            if (!_verifyKYCBurnSignature(kycRequest, kycSignature)) {
+                revert Errors.InvalidSignature();
+            }
+
+            // Update KYC level and nonce
+            $.levels[msg.sender] = kycRequest.kycLevel;
+            $.kycNonces[msg.sender] = kycRequest.nonce;
+
+            emit UpdateLevel(msg.sender, IGoldMinter.Levels(kycRequest.kycLevel));
+            emit KYCBurnRequested(
+                msg.sender,
+                IGoldMinter.Levels(kycRequest.kycLevel),
+                kycRequest.nonce,
+                kycRequest.usdToken,
+                kycRequest.goldAmount,
+                kycRequest.minUsdAmount
+            );
+        }
     }
 
-    function updateAutoSettle() external onlyOwner {
-        autoSettle = autoSettle ? false : true;
-        emit UpdateAutoSettle(autoSettle);
+    /// @dev Process ERC20 permit for USD tokens
+    function _processUSDPermit(
+        GoldMinterStorage storage $,
+        address usdToken,
+        uint256 amount,
+        uint256 deadline,
+        bytes memory permitSignature
+    ) internal {
+        if (permitSignature.length > 0) {
+            (uint8 v, bytes32 r, bytes32 s) = permitSignature.toVRS();
+            IERC20Exp token = _getUSDToken($, usdToken);
+            token.permit(msg.sender, address(this), amount, deadline, v, r, s);
+        }
     }
 
-    function updateTradingLevel(Levels level) external onlyOwner {
-        tradeLevel = level;
-        emit UpdateTradingLevel(level);
+    /// @dev Process ERC20 permit for gold token
+    function _processGoldPermit(
+        GoldMinterStorage storage $,
+        uint256 amount,
+        uint256 deadline,
+        bytes memory permitSignature
+    ) internal {
+        if (permitSignature.length > 0) {
+            (uint8 v, bytes32 r, bytes32 s) = permitSignature.toVRS();
+            $.goldToken.permit(msg.sender, address(this), amount, deadline, v, r, s);
+        }
     }
 
-    function updateRecipient(address _usdRecipient) external onlyOwner {
-        usdRecipient = _usdRecipient;
-        emit UpdateRecipient(_usdRecipient);
+    /// @dev Helper function to get USD token (USDT or USDC)
+    function _getUSDToken(GoldMinterStorage storage $, address usdToken) internal view returns (IERC20Exp) {
+        if (usdToken == address($.USDT)) return $.USDT;
+        if (usdToken == address($.USDC)) return $.USDC;
+        revert Errors.InvalidUSDToken();
+    }
+
+    /// @dev Temporary approach to avoid stack too deep error
+    function _emitInitialize() internal {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        emit UpdateSlippage($.slippage);
+        emit UpdateFees($.fees);
+        emit UpdateMinGold($.minGoldAmount);
+        emit UpdateMinGoldFee($.minGoldFee);
+        emit UpdateMinGoldFeeAmount($.minGoldFeeAmount);
+        emit UpdateAutoSettle($.autoSettle);
+
+        emit UpdateTradingLevel($.tradeLevel);
+        emit UpdateRecipient($.usdRecipient);
+
+        uint8 goldDecimals = $.goldToken.decimals();
+        uint8 usdtDecimals = $.USDT.decimals();
+        uint8 usdcDecimals = $.USDC.decimals();
+
+        emit Initialized(
+            address($.goldToken),
+            goldDecimals,
+            address($.USDT),
+            usdtDecimals,
+            address($.USDC),
+            usdcDecimals,
+            address($.goldPriceFeed)
+        );
+    }
+
+    /// @dev Convert ounce-based price to gram-based price
+    function _convertOunceToGramPrice(uint256 ouncePrice) internal pure returns (uint256) {
+        return (ouncePrice * CONVERSION_PRECISION) / GRAMS_PER_OUNCE;
+    }
+
+    function _getValidatedPrice() internal view returns (uint256, uint8) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        (, int256 price, , uint256 updatedAt, ) = $.goldPriceFeed.latestRoundData();
+
+        if (price <= 0) revert Errors.InvalidPrice();
+
+        // Validate ounce-based Oracle price against ounce-based limits
+        if (uint256(price) < $.minGoldPrice || uint256(price) > $.maxGoldPrice) {
+            revert Errors.PriceOutOfRange();
+        }
+
+        if (updatedAt > block.timestamp || block.timestamp - updatedAt > $.maxPriceAge) {
+            revert Errors.StalePrice();
+        }
+
+        // Convert ounce-based Oracle price to gram-based price for calculations
+        uint256 gramPrice = _convertOunceToGramPrice(uint256(price));
+
+        (, , , uint8 oracleDecimals) = _getTokenDecimals($);
+        return (gramPrice, oracleDecimals);
+    }
+
+    function _verifyKYCMintSignature(
+        IGoldMinter.KYCMintRequest memory request,
+        bytes memory signature
+    ) internal view returns (bool) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        if (request.deadline < block.timestamp) return false;
+        if (request.nonce != $.kycNonces[request.user] + 1) return false;
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                KYC_MINT_REQUEST_TYPEHASH,
+                request.user,
+                request.kycLevel,
+                request.nonce,
+                request.deadline,
+                request.usdToken,
+                request.usdAmount,
+                request.minGoldAmount
+            )
+        );
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, signature);
+
+        return isSettler(signer);
+    }
+
+    function _verifyKYCBurnSignature(
+        IGoldMinter.KYCBurnRequest memory request,
+        bytes memory signature
+    ) internal view returns (bool) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        if (request.deadline < block.timestamp) return false;
+        if (request.nonce != $.kycNonces[request.user] + 1) return false;
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                KYC_BURN_REQUEST_TYPEHASH,
+                request.user,
+                request.kycLevel,
+                request.nonce,
+                request.deadline,
+                request.usdToken,
+                request.goldAmount,
+                request.minUsdAmount
+            )
+        );
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, signature);
+
+        return isSettler(signer);
+    }
+
+    // ============ Private Functions ============
+
+    function _getGoldMinterStorage() private pure returns (GoldMinterStorage storage $) {
+        assembly {
+            $.slot := GoldMinterStorageLocation
+        }
     }
 }

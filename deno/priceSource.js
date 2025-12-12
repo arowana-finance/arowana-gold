@@ -1,11 +1,4 @@
-/**
- * Aims to mirror Chainlink oracle price from remote chain to home chain in regular basis
- *
- * Because chainlink functions automation is time-based, we only check times not price changes
- */
-const ethers = await import('npm:ethers@6.15.0');
-const ethersOpt = await import('npm:ethers-opt@1.0.7');
-const arwGold = await import('npm:arowana-gold@1.0.8');
+const viem = await import('npm:viem@2.21.44');
 
 const REMOTE_CHAIN = 42161;
 const REMOTE_CHAIN_RPC = 'https://arb1.arbitrum.io/rpc';
@@ -13,31 +6,10 @@ const REMOTE_CHAIN_ORACLE = '0x1F954Dc24a49708C26E0C1777f16750B5C6d5a2c';
 
 const HOME_CHAIN = 421614;
 const HOME_CHAIN_RPC = 'https://sepolia-rollup.arbitrum.io/rpc';
-const HOME_CHAIN_ORACLE = '0xBB7D041d5E2828569f4Bd667509AE15c3862298C';
+const HOME_CHAIN_ORACLE = '0x157a8e9647982c9497268a495752d261b2898f04';
 
 const ORACLE_DECIMALS = 8;
 const oracleInterval = 3600;
-
-// Chainlink Functions compatible Ethers JSON RPC provider class
-// (this is required for making Ethers RPC calls with Chainlink Functions)
-class FunctionsJsonRpcProvider extends ethersOpt.Provider {
-  constructor(url) {
-    super(url);
-    this.url = url;
-  }
-
-  async _send(payload) {
-    const resp = await fetch(this.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await resp.json();
-
-    return !Array.isArray(result) ? [result] : result;
-  }
-}
 
 function getTimestamp() {
     return Math.floor(Date.now() / 1000);
@@ -45,91 +17,106 @@ function getTimestamp() {
 
 async function fetchRemote() {
     try {
-        const provider = new FunctionsJsonRpcProvider(REMOTE_CHAIN_RPC);
-        const dataFeed = arwGold.contracts.DataFeed__factory.connect(REMOTE_CHAIN_ORACLE, provider);
+        const client = viem.createPublicClient({
+            transport: viem.http(REMOTE_CHAIN_RPC),
+        });
         const currentTimestamp = getTimestamp();
 
-        const [{ chainId }, [, answer, , updatedAt]] = await Promise.all([
-            provider.getNetwork(),
-            dataFeed.latestRoundData(),
+        const [id, [, answer, , updatedAt]] = await Promise.all([
+            client.getChainId(),
+            client.readContract({
+                address: REMOTE_CHAIN_ORACLE,
+                abi: [
+                    {
+                        type: 'function',
+                        name: 'latestRoundData',
+                        stateMutability: 'view',
+                        inputs: [],
+                        outputs: [
+                            { name: 'roundId', type: 'uint80' },
+                            { name: 'answer', type: 'int256' },
+                            { name: 'startedAt', type: 'uint256' },
+                            { name: 'updatedAt', type: 'uint256' },
+                            { name: 'answeredInRound', type: 'uint80' },
+                        ],
+                    },
+                ],
+                functionName: 'latestRoundData',
+            }),
         ]);
 
-        if (Number(chainId) !== REMOTE_CHAIN) {
+        if (Number(id) !== REMOTE_CHAIN) {
             throw new Error('Invalid remote chain');
         }
 
-        if (Number(updatedAt) < (currentTimestamp - 86400)) {
+        if (Number(updatedAt) < currentTimestamp - 86400) {
             throw new Error('Data too old');
         }
 
         return {
-            latestAnswer: Number(ethers.formatUnits(answer, ORACLE_DECIMALS)),
+            latestAnswer: Number(viem.formatUnits(answer, ORACLE_DECIMALS)),
             updatedAt: Number(updatedAt),
-        }
-
-    } catch {
-        return {
-            latestAnswer: 0,
-            updatedAt: 0,
-        }
+        };
+    } catch (error) {
+        console.log('Remote fetch error:', error.message);
+        return { latestAnswer: 0, updatedAt: 0 };
     }
 }
 
 async function fetchHome() {
     try {
-        const provider = new FunctionsJsonRpcProvider(HOME_CHAIN_RPC);
-        const dataFeed = arwGold.contracts.AGTPriceFeed__factory.connect(HOME_CHAIN_ORACLE, provider);
+        const client = viem.createPublicClient({
+            transport: viem.http(HOME_CHAIN_RPC),
+        });
         const currentTimestamp = getTimestamp();
 
-        const [{ chainId }, [, answer, , updatedAt], remoteChain, remoteChainOracle] = await Promise.all([
-            provider.getNetwork(),
-            dataFeed.latestRoundData(),
-            dataFeed.remoteChain(),
-            dataFeed.remoteChainOracle(),
-        ]);
+        const [, answer, , updatedAt] = await client.readContract({
+            address: HOME_CHAIN_ORACLE,
+            abi: [
+                {
+                    type: 'function',
+                    name: 'latestRoundData',
+                    stateMutability: 'view',
+                    inputs: [],
+                    outputs: [
+                        { name: 'roundId', type: 'uint80' },
+                        { name: 'answer', type: 'int256' },
+                        { name: 'startedAt', type: 'uint256' },
+                        { name: 'updatedAt', type: 'uint256' },
+                        { name: 'answeredInRound', type: 'uint80' },
+                    ],
+                },
+            ],
+            functionName: 'latestRoundData',
+        });
 
-        if (Number(chainId) !== HOME_CHAIN) {
-            throw new Error('Invalid home chain');
-        }
-
-        if (Number(remoteChain) !== REMOTE_CHAIN || remoteChainOracle !== REMOTE_CHAIN_ORACLE) {
-            throw new Error('Invalid remote chain');
-        }
-
-        if (Number(updatedAt) >= currentTimestamp) {
+        if (Number(updatedAt) > currentTimestamp) {
             throw new Error('Data too new');
         }
 
         return {
-            latestAnswer: Number(ethers.formatUnits(answer, ORACLE_DECIMALS)),
+            latestAnswer: Number(viem.formatUnits(answer, ORACLE_DECIMALS)),
             updatedAt: !updatedAt ? currentTimestamp : Number(updatedAt),
-        }
-    } catch {
-        return {
-            latestAnswer: 0,
-            updatedAt: 0,
-        }
+        };
+    } catch (error) {
+        console.log('Home fetch error:', error.message);
+        return { latestAnswer: 0, updatedAt: 0 };
     }
 }
 
 async function processSource() {
-    const [remoteData, homeData] = await Promise.all([
-        fetchRemote(),
-        fetchHome(),
-    ]);
-
+    const [remoteData, homeData] = await Promise.all([fetchRemote(), fetchHome()]);
+    console.log({ remoteData, homeData });
     if (!remoteData.updatedAt || !homeData.updatedAt) {
-        return ethers.getBytes('0x01');
+        return viem.toBytes('0x01');
     }
 
     const currentTimestamp = Math.floor(getTimestamp() / oracleInterval) * oracleInterval;
 
     const timestamp = remoteData.updatedAt > currentTimestamp ? remoteData.updatedAt : currentTimestamp;
-    const answer = ethers.parseUnits(String(remoteData.latestAnswer), ORACLE_DECIMALS);
+    const answer = viem.parseUnits(String(remoteData.latestAnswer), ORACLE_DECIMALS);
 
-    return ethers.getBytes(ethers.solidityPacked(['uint64', 'uint64'], [answer, timestamp]));
+    return viem.toBytes(viem.encodePacked(['uint64', 'uint64'], [answer, BigInt(timestamp)]));
 }
 
-const encoded = await processSource();
-
-return encoded;
+return await processSource();

@@ -1,13 +1,9 @@
-import { Provider } from 'ethers';
-import { type SignerWithAddress } from 'ethers-opt';
-import {
-    DataFeed__factory,
-    ERC20Mock__factory,
-    GoldMinter__factory,
-    GoldToken__factory,
-} from '../typechain-types/index.js';
+import { network } from 'hardhat';
+import type { Account, PublicClient, WalletClient, Address } from 'viem';
 
-export type Runner = SignerWithAddress | Provider;
+export type Runner = Account | PublicClient | WalletClient;
+
+const { viem } = await network.connect();
 
 export interface BaseConfig extends Record<string, string | number> {
     chainId: number;
@@ -15,10 +11,10 @@ export interface BaseConfig extends Record<string, string | number> {
 }
 
 export interface GoldConfig extends BaseConfig {
-    goldToken: string;
-    goldPriceFeed: string;
-    goldReserveFeed: string;
-    goldMinter: string;
+    goldToken: Address;
+    goldPriceFeed: Address;
+    goldReserveFeed: Address;
+    goldMinter: Address;
 }
 
 export enum Networks {
@@ -32,27 +28,27 @@ export const goldConfigs: Record<number, GoldConfig> = {
         rpc: 'https://sepolia-rollup.arbitrum.io/rpc',
         goldToken: '0x90dEDb255F05C8FFEeb628a6b9Ad6160e8174Cb0',
         goldPriceFeed: '0xBB7D041d5E2828569f4Bd667509AE15c3862298C',
-        goldReserveFeed: '0xa94fCB087C9E5D8480C04049D97e2fE2F3b306a0',
+        goldReserveFeed: '0x46013a422ac2fb5c10f1bba16abba4175fc54426',
         goldMinter: '0x27c58B2e12841402671C2D86fE5AC4e0100498C0',
     },
 };
 
-export function getStableCoinContract(address: string, runner?: Runner) {
-    return ERC20Mock__factory.connect(address, runner);
+export async function getStableCoinContract(address: Address) {
+    return await viem.getContractAt('ERC20Mock', address);
 }
 
-export function getGoldTokenContract(address: string, runner?: Runner) {
-    return GoldToken__factory.connect(address, runner);
+export async function getGoldTokenContract(address: Address) {
+    return await viem.getContractAt('GoldToken', address);
 }
 
-export function getGoldPriceFeedContract(address: string, runner?: Runner) {
-    return DataFeed__factory.connect(address, runner);
+export async function getGoldPriceFeedContract(address: Address) {
+    return await viem.getContractAt('DataFeed', address);
 }
 
-export function getGoldReserveFeedContract(address: string, runner?: Runner) {
-    return DataFeed__factory.connect(address, runner);
+export async function getGoldReserveFeedContract(address: Address) {
+    return await viem.getContractAt('DataFeed', address);
 }
 
-export function getGoldMinterContract(address: string, runner?: Runner) {
-    return GoldMinter__factory.connect(address, runner);
+export async function getGoldMinterContract(address: Address) {
+    return await viem.getContractAt('GoldMinter', address);
 }
