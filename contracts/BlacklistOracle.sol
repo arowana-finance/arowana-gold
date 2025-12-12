@@ -56,7 +56,7 @@ contract BlacklistOracle is Ownable {
                 revert InvalidAddress(_black);
             }
 
-            $._blacklist.add(_blacklist[i]);
+            $._blacklist.add(_black);
         }
 
         emit BlacklistAdded(_blacklist);
@@ -72,7 +72,7 @@ contract BlacklistOracle is Ownable {
                 revert InvalidAddress(_black);
             }
 
-            $._blacklist.remove(_blacklist[i]);
+            $._blacklist.remove(_black);
         }
 
         emit BlacklistRemoved(_blacklist);
