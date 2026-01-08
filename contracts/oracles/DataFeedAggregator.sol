@@ -31,11 +31,11 @@ contract DataFeedAggregator is Ownable {
     mapping(uint16 => DataFeedAggregator) public phaseAggregators;
 
     function initialize(address _initOwner, address _aggregator) public virtual initializer {
+		__Ownable_init(_initOwner);
+		
         if (_aggregator != address(0)) {
             proposeAggregator(_aggregator);
         }
-
-        __Ownable_init(_initOwner);
     }
 
     /**

@@ -128,6 +128,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
     // ============ Constructor ============
 
+	/// @custom:oz-upgrades-unsafe-allow constructor
+	constructor() {
+		_disableInitializers();
+	}
+
     function initializeGoldMinter(
         address _goldToken,
         address _USDT,
@@ -248,11 +253,12 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
     function setLevel(address user, IGoldMinter.Levels level) external onlySettlers {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.levels[user] = uint8(level);
+		$.kycNonces[user]++;
         emit UpdateLevel(user, level);
     }
 
     function updateSlippage(uint16 _slippage) external onlyOwner {
-        if (_slippage >= 500) revert Errors.Overflow();
+        if (_slippage > 500) revert Errors.Overflow();
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.slippage = _slippage;
         emit UpdateSlippage(_slippage);
@@ -461,7 +467,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
     function canBurn(IERC20Exp usdToken, uint256 usdAmount) public view returns (bool) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
-        return usdToken.balanceOf($.usdRecipient) >= usdAmount;
+         return usdToken.balanceOf($.usdRecipient) >= usdAmount &&
+             usdToken.allowance($.usdRecipient, address(this)) >= usdAmount;
     }
 
     function fees() public view returns (uint16) {
@@ -531,8 +538,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         if (mintNonce >= $.mintOrders.length) revert Errors.InvalidNonce();
         if ($.mintOrders[mintNonce].isSettled) revert Errors.AlreadySettled();
+		if ($.amlBlacklist[$.mintOrders[mintNonce].buyer]) revert Errors.AMLBlocked();
 
-        bool success = goldAmount >= $.mintOrders[mintNonce].minGoldAmount;
+		uint256 feeAmount = calculateGoldFee(goldAmount);
+  		uint256 netGoldAmount = goldAmount - feeAmount;
+  		bool success = netGoldAmount >= $.mintOrders[mintNonce].minGoldAmount;
 
         // Issue refund if deposited usd is insufficient
         if (!success) {
@@ -546,11 +556,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
             // Mint desired gold amount
         } else {
             $.mintOrders[mintNonce].goldAmount = goldAmount;
-
-            uint256 feeAmount = calculateGoldFee(goldAmount);
-
             $.goldToken.mint($.usdRecipient, feeAmount);
-            $.goldToken.mint($.mintOrders[mintNonce].buyer, goldAmount - feeAmount);
+            $.goldToken.mint($.mintOrders[mintNonce].buyer, netGoldAmount);
         }
 
         $.mintOrders[mintNonce].success = success;
@@ -564,20 +571,19 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         if (burnNonce >= $.burnOrders.length) revert Errors.InvalidNonce();
         if ($.burnOrders[burnNonce].isSettled) revert Errors.AlreadySettled();
+		if ($.amlBlacklist[$.burnOrders[burnNonce].seller]) revert Errors.AMLBlocked();
 
         IERC20Exp usdToken = IERC20Exp($.burnOrders[burnNonce].usdToken);
         uint256 goldAmount = $.burnOrders[burnNonce].goldAmount;
 
-        bool success = usdAmount >= $.burnOrders[burnNonce].minUsdAmount && canBurn(usdToken, usdAmount);
+		uint256 feeAmount = calculateGoldFee(goldAmount);
+  		uint256 usdAfterFee = getUsdAmount(address(usdToken), goldAmount - feeAmount);
+  		bool success = usdAfterFee >= $.burnOrders[burnNonce].minUsdAmount && canBurn(usdToken, usdAfterFee);
 
         if (!success) {
             $.goldToken.safeTransfer($.burnOrders[burnNonce].seller, goldAmount);
         } else {
-            $.burnOrders[burnNonce].usdAmount = usdAmount;
-
-            uint256 feeAmount = calculateGoldFee(goldAmount);
-            uint256 usdAfterFee = getUsdAmount(address(usdToken), goldAmount - feeAmount);
-
+            $.burnOrders[burnNonce].usdAmount = usdAfterFee;
             $.goldToken.burn(goldAmount - feeAmount);
             $.goldToken.safeTransfer($.usdRecipient, feeAmount);
             usdToken.safeTransferFrom($.usdRecipient, $.burnOrders[burnNonce].seller, usdAfterFee);
@@ -612,9 +618,9 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
     /// @dev Common slippage validation logic
     function _validateSlippage(uint256 expectedOutput, uint256 minAmount, uint16 slippage_) internal pure {
         if (
-            !(((expectedOutput * (10000 + slippage_)) / 10000) >= minAmount &&
-                minAmount >= ((expectedOutput * (10000 - slippage_)) / 10000))
-        ) revert Errors.Underpriced();
+          !(expectedOutput >= minAmount &&
+              minAmount >= ((expectedOutput * (10000 - slippage_)) / 10000))
+      ) revert Errors.Underpriced();
     }
 
     /// @dev Common minimum amount validation
