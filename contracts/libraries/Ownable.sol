@@ -8,7 +8,7 @@ abstract contract Ownable is OwnableUpgradeable {
     function _checkOwner() internal view virtual override {
         address _owner = owner();
 
-        if (_owner != address(0) && _owner != msg.sender) {
+        if (_owner == address(0) || _owner != msg.sender) {
             revert OwnableUnauthorizedAccount(msg.sender);
         }
     }

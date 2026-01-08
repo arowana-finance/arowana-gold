@@ -10,38 +10,33 @@ import { AGTReserveFeed } from './AGTReserveFeed.sol';
  * ( For Arbitrum mainnet should use something like PriceCapAdapterStable at front of XAU / USD price feed )
  */
 contract AGTPriceFeed is AGTReserveFeed {
-    uint64 public remoteChain;
-
     address public remoteChainOracle;
+    uint64 public remoteChain;
+	struct InitParams {
+          address initOwner;
+          address asset;
+          string description;
+          uint64 remoteChain;
+          address remoteChainOracle;
+          address router;
+          address upkeepContract;
+          uint64 upkeepInterval;
+          uint64 upkeepRateInterval;
+          uint64 upkeepRateCap;
+          uint64 maxBaseGasPrice;
+          uint64 updateInterval;
+      }
 
     function initializeAGTPriceFeed(
-        address _initOwner,
-        address _asset,
-        string memory _description,
-        uint64 _remoteChain,
-        address _remoteChainOracle,
-        address _router,
-        address _upkeepContract,
-        uint64 _upkeepInterval,
-        uint64 _upkeepRateInterval,
-        uint64 _upkeepRateCap,
-        uint64 _maxBaseGasPrice,
-        uint64 _updateInterval
-    ) public onlyOwner {
-        remoteChain = _remoteChain;
-        remoteChainOracle = _remoteChainOracle;
+        InitParams calldata params
+    ) public initializer { 
+		_initializeFeed(params.initOwner, params.asset, params.description);
 
-        initializeAGTReserveFeed(
-            _initOwner,
-            _asset,
-            _description,
-            _router,
-            _upkeepContract,
-            _upkeepInterval,
-            _upkeepRateInterval,
-            _upkeepRateCap,
-            _maxBaseGasPrice,
-            _updateInterval
-        );
+		remoteChain = params.remoteChain;
+		remoteChainOracle = params.remoteChainOracle;
+
+		setInterval(params.updateInterval);
+		setUpkeep(params.upkeepContract, params.upkeepInterval, params.upkeepRateInterval, params.upkeepRateCap, params.maxBaseGasPrice);
+		_initializeConsumer(address(0), params.router);
     }
 }

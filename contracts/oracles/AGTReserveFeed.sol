@@ -38,10 +38,10 @@ contract AGTReserveFeed is DataFeed, BaseFunctionsConsumer {
         uint64 _maxBaseGasPrice,
         uint64 _updateInterval
     ) public virtual initializer {
+		_initializeFeed(_initOwner, _asset, _description);
         setInterval(_updateInterval);
         setUpkeep(_upkeepContract, _upkeepInterval, _upkeepRateInterval, _upkeepRateCap, _maxBaseGasPrice);
         _initializeConsumer(address(0), _router);
-        _initializeFeed(_initOwner, _asset, _description);
     }
 
     function setInterval(uint64 _updateInterval) public onlyOwner {

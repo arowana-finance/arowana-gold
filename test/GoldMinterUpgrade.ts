@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, getAddress, encodeFunctionData, maxUint256, zeroAddress } from 'viem';
+import { parseUnits, parseEther, getAddress, encodeFunctionData, maxUint256 } from 'viem';
 import { getClients } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('4200', 8); // Oracle price (per ounce)
@@ -21,10 +21,47 @@ describe('GoldMinter - Upgrade Tests', function () {
         const { owner, buyer, viem } = await getClients();
         const { USDTMintAmt, USDCMintAmt, USDTTransferAmt, USDCTransferAmt } = fixtureData;
 
-        const goldToken = await viem.deployContract('GoldToken');
-        await goldToken.write.initializeGoldToken([owner.account.address, zeroAddress], {
-            account: owner.account,
+        const blacklistOracleImplementation = await viem.deployContract('BlacklistOracle', []);
+        const blacklistOracleProxy = await viem.deployContract('InitializableProxy', []);
+
+        const blacklistOracleInitData = encodeFunctionData({
+            abi: blacklistOracleImplementation.abi,
+            functionName: 'initializeOracle',
+            args: ['Blacklist Oracle', owner.account.address],
         });
+
+        await blacklistOracleProxy.write.initializeProxy(
+            [
+                'Blacklist Oracle',
+                owner.account!.address,
+                blacklistOracleImplementation.address,
+                blacklistOracleInitData,
+            ],
+            { account: owner.account },
+        );
+
+        const blacklistOracle = await viem.getContractAt('BlacklistOracle', blacklistOracleProxy.address);
+
+        const goldTokenImplementation = await viem.deployContract('GoldToken', []);
+        const goldTokenProxy = await viem.deployContract('InitializableProxy', []);
+
+        const goldTokenInitData = encodeFunctionData({
+            abi: goldTokenImplementation.abi,
+            functionName: 'initializeGoldToken',
+            args: [owner.account!.address, blacklistOracle.address],
+        });
+
+        await goldTokenProxy.write.initializeProxy(
+            [
+                'Arowana Gold Token',
+                owner.account!.address,
+                goldTokenImplementation.address,
+                goldTokenInitData,
+            ],
+            { account: owner.account },
+        );
+
+        const goldToken = await viem.getContractAt('GoldToken', goldTokenProxy.address);
 
         const USDT = await viem.deployContract('ERC20Mock', [
             'Tether USD',
@@ -46,17 +83,26 @@ describe('GoldMinter - Upgrade Tests', function () {
             account: owner.account,
         });
 
-        const goldPriceFeed = await viem.deployContract('DataFeed');
-        await goldPriceFeed.write.initializeFeed(
-            [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} / USD`],
+        const goldPriceFeedImpl = await viem.deployContract('DataFeed');
+        const goldPriceFeedProxy = await viem.deployContract('InitializableProxy', []);
+
+        const goldPriceFeedInitData = encodeFunctionData({
+            abi: goldPriceFeedImpl.abi,
+            functionName: 'initializeFeed',
+            args: [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} / USD`],
+        });
+
+        await goldPriceFeedProxy.write.initializeProxy(
+            ['DataFeed', owner.account.address, goldPriceFeedImpl.address, goldPriceFeedInitData],
             { account: owner.account },
         );
+
+        const goldPriceFeed = await viem.getContractAt('DataFeed', goldPriceFeedProxy.address);
 
         await goldPriceFeed.write.updateAnswer([GOLD_PRICE], {
             account: owner.account,
         });
 
-        // Deploy initial implementation
         const goldMinterImpl = await viem.deployContract('GoldMinter');
         const goldMinterProxy = await viem.deployContract('InitializableProxy', []);
 
@@ -207,12 +253,12 @@ describe('GoldMinter - Upgrade Tests', function () {
         });
 
         // Calculate expected AGT amount before fees
-        const expectedAGT = Number(await goldMinter.read.getGoldAmount([USDT.address, agtAmt]));
+        const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, agtAmt])) as bigint;
 
         // Calculate expected fee
-        const expectedFee = await goldMinter.read.calculateGoldFee([expectedAGT]);
+        const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
 
-        const expectedAGTAfterFee = Number(expectedAGT) - Number(expectedFee);
+        const expectedAGTAfterFee = expectedAGT - expectedFee;
 
         await goldMinter.write.requestMint([USDT.address, agtAmt, expectedAGTAfterFee], {
             account: buyer.account,

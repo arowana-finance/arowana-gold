@@ -12,78 +12,143 @@ import { InitializableERC20 } from './InitializableERC20.sol';
 contract GoldToken is InitializableERC20, Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    IBlacklistOracle public blacklistOracle;
+	// ============ Constants ============
 
-    EnumerableSet.AddressSet private _minters;
+	// keccak256(abi.encode(uint256(keccak256("arowana.storage.GoldToken")) - 1)) & ~bytes32(uint256(0xff))
+	bytes32 private constant GoldTokenStorageLocation =
+		0xe44905d6e4ba5747df952e0c03f8ea1240c6d09b5d1d9bb0f13150edec015800;
 
-    event BlacklistOracleChanged(address _blacklistOracle);
+	// ============ EIP-7201 Storage ============
+
+    /// @custom:storage-location erc7201:arowana.storage.GoldToken
+	struct GoldTokenStorage {
+		IBlacklistOracle blacklistOracle;
+		EnumerableSet.AddressSet _minters;
+	}
+
+	// ============ Events ============
+
+	event BlacklistOracleChanged(address _blacklistOracle);
     event AddMinter(address newMinter);
     event RemoveMinter(address oldMinter);
 
-    error BlacklistedAddress(address addr);
+	// ============ Errors ============
 
-    function initializeGoldToken(address _initOwner, address _blacklistOracle) public {
+    error BlacklistedAddress(address[] addrs);
+	error ForbiddenAddress();
+	error DuplicateMinter();
+	error InvalidMinter();
+
+	// ============ Modifiers ============
+
+	modifier onlyMinter() {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+		if (!$._minters.contains(_msgSender())) revert ForbiddenAddress();
+        _;
+    }
+
+	// ============ Constructor ============
+
+	/// @custom:oz-upgrades-unsafe-allow constructor
+	constructor() {
+		_disableInitializers();
+	}
+
+	// ============ Initializer ============
+
+    function initializeGoldToken(address _initOwner, address _blacklistOracle) public initializer {
         initializeToken('Arowana Gold Token', 'AGT', 18, 0);
 
-        _minters.add(_initOwner);
-        emit AddMinter(_initOwner);
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+
+        $._minters.add(_initOwner);
+		emit AddMinter(_initOwner);
 
         if (_blacklistOracle != address(0)) {
-            changeBlacklistOracle(_blacklistOracle);
+            $.blacklistOracle = IBlacklistOracle(_blacklistOracle);
+			emit BlacklistOracleChanged(_blacklistOracle);
         }
         _transferOwnership(_initOwner);
     }
+
+	// ============ External Functions ============
+
+    function addMinter(address _minter) external onlyOwner {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+		if ($._minters.contains(_minter)) revert DuplicateMinter();
+		$._minters.add(_minter);
+		emit AddMinter(_minter);
+	}
+
+    function removeMinter(address _minter) external onlyOwner {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+		if(!$._minters.contains(_minter)) revert InvalidMinter();
+		$._minters.remove(_minter);
+		emit RemoveMinter(_minter);
+	}
+
+	function minters() external view returns (address[] memory) {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+		return $._minters.values();
+	}
+
+	// ============ Public Functions ============
+
+	function mint(address to, uint256 amount) public onlyMinter {
+        _mint(to, amount);
+    }
+
+	function changeBlacklistOracle(address _blacklistOracle) public virtual onlyOwner {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+		$.blacklistOracle = IBlacklistOracle(_blacklistOracle);
+		emit BlacklistOracleChanged(_blacklistOracle);
+	}
+
+	function blacklistOracle() public view returns (IBlacklistOracle) {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+		return $.blacklistOracle;
+	}
+
+	// ============ Internal Functions ============
 
     /**
      * Blacklist related functions
      */
     function _update(address from, address to, uint256 value) internal virtual override {
-        if (address(blacklistOracle) != address(0)) {
-            address[] memory _black = new address[](2);
+      GoldTokenStorage storage $ = _getGoldTokenStorage();
 
-            _black[0] = from;
-            _black[1] = to;
+      if (address($.blacklistOracle) != address(0)) {
+          address[] memory _addrs = new address[](2);
+          _addrs[0] = from;
+          _addrs[1] = to;
 
-            (bool _blacklisted, uint256 _blackIndex) = blacklistOracle.areBlacklisted(_black);
+          bool[] memory _results = $.blacklistOracle.areBlacklisted(_addrs);
 
-            if (_blacklisted) {
-                revert BlacklistedAddress(_black[_blackIndex]);
-            }
-        }
+          uint256 count = 0;
+          for (uint i; i < _results.length; ++i) {
+              if (_results[i]) count++;
+          }
 
-        super._update(from, to, value);
-    }
+          if (count > 0) {
+              address[] memory _blacklisted = new address[](count);
+              uint256 j = 0;
+              for (uint i; i < _results.length; ++i) {
+                  if (_results[i]) {
+                      _blacklisted[j++] = _addrs[i];
+                  }
+              }
+              revert BlacklistedAddress(_blacklisted);
+          }
+      }
 
-    function changeBlacklistOracle(address _blacklistOracle) public virtual onlyOwner {
-        blacklistOracle = IBlacklistOracle(_blacklistOracle);
-        emit BlacklistOracleChanged(_blacklistOracle);
-    }
+      super._update(from, to, value);
+  }
 
-    /**
-     * Minting related functions
-     */
-    modifier onlyMinter() {
-        require(_minters.contains(_msgSender()), 'FORBIDDEN');
-        _;
-    }
+	// ============ Private Functions ============
 
-    function minters() external view returns (address[] memory) {
-        return _minters.values();
-    }
-
-    function addMinter(address _minter) external onlyOwner {
-        require(!_minters.contains(_minter), 'DUPLICATE_MINTER');
-        _minters.add(_minter);
-        emit AddMinter(_minter);
-    }
-
-    function removeMinter(address _minter) external onlyOwner {
-        require(_minters.contains(_minter), 'INVALID_MINTER');
-        _minters.remove(_minter);
-        emit RemoveMinter(_minter);
-    }
-
-    function mint(address to, uint256 amount) public onlyMinter {
-        _mint(to, amount);
-    }
+	function _getGoldTokenStorage() private pure returns (GoldTokenStorage storage $) {
+		assembly {
+			$.slot := GoldTokenStorageLocation
+		}
+	}
 }

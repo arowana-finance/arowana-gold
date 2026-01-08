@@ -12,25 +12,37 @@ contract BlacklistOracle is Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // ============ Constants ============
+
     /// @dev keccak256(abi.encode(uint256(keccak256("BlacklistOracle")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant BlacklistOracleStorageLocation =
         0xeafe955e3e9fca9f405034e3cbb9179eaee502fc8f327276b976c4cf4b4aeb00;
 
     // ============ Storage ============
+
     struct BlacklistOracleStorage {
         string _name;
         EnumerableSet.AddressSet _blacklist;
     }
 
     // ============ Events ============
+
     event BlacklistInitialized(string _name);
     event BlacklistAdded(address[] addrs);
     event BlacklistRemoved(address[] addrs);
 
     // ============ Errors ============
+
     error InvalidAddress(address addr);
 
     // ============ Constructor ============
+
+	/// @custom:oz-upgrades-unsafe-allow constructor
+	constructor() {
+		_disableInitializers();
+	}
+
+	// ============ Initializer ============
+
     function initializeOracle(string memory _name, address _initOwner) public initializer {
         BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
 
@@ -41,11 +53,13 @@ contract BlacklistOracle is Ownable {
     }
 
     // ============ External Functions ============
+
     function name() external view virtual returns (string memory) {
         return _getBlacklistOracleStorage()._name;
     }
 
     // ============ Public Functions ============
+
     function addBlacklist(address[] memory _blacklist) public virtual onlyOwner {
         BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
 
@@ -82,17 +96,16 @@ contract BlacklistOracle is Ownable {
         return _getBlacklistOracleStorage()._blacklist.contains(addr);
     }
 
-    function areBlacklisted(address[] memory _addr) public view virtual returns (bool, uint256) {
-        BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
+    function areBlacklisted(address[] memory _addr) public view virtual returns (bool[] memory) {
+		BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
+		bool[] memory results = new bool[](_addr.length);
 
-        for (uint i; i < _addr.length; ++i) {
-            if ($._blacklist.contains(_addr[i])) {
-                return (true, i);
-            }
-        }
+		for (uint i; i < _addr.length; ++i) {
+			results[i] = $._blacklist.contains(_addr[i]);
+		}
 
-        return (false, _addr.length);
-    }
+		return results;
+	}
 
     function getBlacklistCount() public view virtual returns (uint256) {
         return _getBlacklistOracleStorage()._blacklist.length();
@@ -111,6 +124,7 @@ contract BlacklistOracle is Ownable {
     }
 
     // ============ Internal Functions ============
+	
     function _getBlacklistOracleStorage() internal pure returns (BlacklistOracleStorage storage $) {
         assembly {
             $.slot := BlacklistOracleStorageLocation

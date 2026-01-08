@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData, zeroAddress } from 'viem';
+import { parseUnits, maxUint256, getAddress, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('4198.21', 8); // Oracle price (per ounce)
@@ -22,10 +22,47 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         const { owner, buyer, viem } = await getClients();
         const { USDTMintAmt, USDCMintAmt, USDTTransferAmt, USDCTransferAmt } = fixtureData;
 
-        const goldToken = await viem.deployContract('GoldToken');
-        await goldToken.write.initializeGoldToken([owner.account.address, zeroAddress], {
-            account: owner.account,
+        const blacklistOracleImplementation = await viem.deployContract('BlacklistOracle', []);
+        const blacklistOracleProxy = await viem.deployContract('InitializableProxy', []);
+
+        const blacklistOracleInitData = encodeFunctionData({
+            abi: blacklistOracleImplementation.abi,
+            functionName: 'initializeOracle',
+            args: ['Blacklist Oracle', owner.account.address],
         });
+
+        await blacklistOracleProxy.write.initializeProxy(
+            [
+                'Blacklist Oracle',
+                owner.account!.address,
+                blacklistOracleImplementation.address,
+                blacklistOracleInitData,
+            ],
+            { account: owner.account },
+        );
+
+        const blacklistOracle = await viem.getContractAt('BlacklistOracle', blacklistOracleProxy.address);
+
+        const goldTokenImplementation = await viem.deployContract('GoldToken', []);
+        const goldTokenProxy = await viem.deployContract('InitializableProxy', []);
+
+        const goldTokenInitData = encodeFunctionData({
+            abi: goldTokenImplementation.abi,
+            functionName: 'initializeGoldToken',
+            args: [owner.account!.address, blacklistOracle.address],
+        });
+
+        await goldTokenProxy.write.initializeProxy(
+            [
+                'Arowana Gold Token',
+                owner.account!.address,
+                goldTokenImplementation.address,
+                goldTokenInitData,
+            ],
+            { account: owner.account },
+        );
+
+        const goldToken = await viem.getContractAt('GoldToken', goldTokenProxy.address);
 
         const USDT = await viem.deployContract('ERC20Mock', [
             'Tether USD',
@@ -47,11 +84,21 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             account: owner.account,
         });
 
-        const goldPriceFeed = await viem.deployContract('DataFeed');
-        await goldPriceFeed.write.initializeFeed(
-            [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} / USD`],
+        const goldPriceFeedImpl = await viem.deployContract('DataFeed');
+        const goldPriceFeedProxy = await viem.deployContract('InitializableProxy', []);
+
+        const goldPriceFeedInitData = encodeFunctionData({
+            abi: goldPriceFeedImpl.abi,
+            functionName: 'initializeFeed',
+            args: [owner.account.address, goldToken.address, `${await goldToken.read.symbol()} / USD`],
+        });
+
+        await goldPriceFeedProxy.write.initializeProxy(
+            ['DataFeed', owner.account.address, goldPriceFeedImpl.address, goldPriceFeedInitData],
             { account: owner.account },
         );
+
+        const goldPriceFeed = await viem.getContractAt('DataFeed', goldPriceFeedProxy.address);
 
         await goldPriceFeed.write.updateAnswer([GOLD_PRICE], {
             account: owner.account,
@@ -110,10 +157,10 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
             expect(await goldMinter.read.paused()).to.be.false;
 
-            await goldMinter.write.emergencyPause({ account: owner.account });
+            await goldMinter.write.emergencyPause([], { account: owner.account });
             expect(await goldMinter.read.paused()).to.be.true;
 
-            await goldMinter.write.emergencyUnpause({ account: owner.account });
+            await goldMinter.write.emergencyUnpause([], { account: owner.account });
             expect(await goldMinter.read.paused()).to.be.false;
         });
 
@@ -128,13 +175,20 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: buyer.account,
             });
 
-            await goldMinter.write.emergencyPause({ account: owner.account });
+            const expectedAGT = Number(
+                await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN]),
+            );
+
+            const expectedFee = await goldMinter.read.calculateGoldFee([expectedAGT]);
+
+            const expectedAGTAfterFee = Number(expectedAGT) - Number(expectedFee);
+
+            await goldMinter.write.emergencyPause([], { account: owner.account });
 
             await viem.assertions.revertWithCustomError(
-                goldMinter.write.requestMint(
-                    [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                    { account: buyer.account },
-                ),
+                goldMinter.write.requestMint([USDT.address, GOLD_PRICE_IN_USD_TOKEN, expectedAGTAfterFee], {
+                    account: buyer.account,
+                }),
                 goldMinter,
                 'EnforcedPause',
             );
@@ -147,26 +201,37 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: owner.account,
             });
 
-            await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+            const mintAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
+
+            await USDT.write.approve([goldMinter.address, mintAmt], {
                 account: buyer.account,
             });
 
-            await goldMinter.write.requestMint(
-                [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                { account: buyer.account },
-            );
+            const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const goldBalance = await goldToken.read.balanceOf([buyer.account.address]);
-            const expectedOutput = await goldMinter.read.getUsdAmount([USDT.address, goldBalance]);
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+
+            const expectedAGTAfterFee = expectedAGT - expectedFee;
+
+            await goldMinter.write.requestMint([USDT.address, mintAmt, expectedAGTAfterFee], {
+                account: buyer.account,
+            });
+
+            const goldBalance = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+            const burnFee = (await goldMinter.read.calculateGoldFee([goldBalance])) as bigint;
+
+            const expectedUSDAfterBurnFee = Number(
+                await goldMinter.read.getUsdAmount([USDT.address, goldBalance - burnFee]),
+            );
 
             await goldToken.write.approve([goldMinter.address, maxUint256], {
                 account: buyer.account,
             });
 
-            await goldMinter.write.emergencyPause({ account: owner.account });
+            await goldMinter.write.emergencyPause([], { account: owner.account });
 
             await viem.assertions.revertWithCustomError(
-                goldMinter.write.requestBurn([USDT.address, goldBalance, expectedOutput], {
+                goldMinter.write.requestBurn([USDT.address, goldBalance, expectedUSDAfterBurnFee], {
                     account: buyer.account,
                 }),
                 goldMinter,
@@ -175,47 +240,54 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         });
 
         it('should allow trading after unpause', async function () {
-            const { owner, buyer, USDT, goldMinter } = await fixture();
+            const { owner, buyer, USDT, goldMinter, goldToken } = await fixture();
 
             await goldMinter.write.setLevel([buyer.account.address, 2], {
                 account: owner.account,
             });
 
-            await goldMinter.write.emergencyPause({ account: owner.account });
-            await goldMinter.write.emergencyUnpause({ account: owner.account });
+            await goldMinter.write.emergencyPause([], { account: owner.account });
+            await goldMinter.write.emergencyUnpause([], { account: owner.account });
 
-            await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+            const mintAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
+
+            await USDT.write.approve([goldMinter.address, mintAmt], {
                 account: buyer.account,
             });
 
-            await goldMinter.write.requestMint(
-                [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                { account: buyer.account },
-            );
+            const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const goldBalance = await goldMinter.read.goldToken();
-            expect(goldBalance).to.not.equal(0);
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+
+            const expectedAGTAfterFee = expectedAGT - expectedFee;
+
+            await goldMinter.write.requestMint([USDT.address, mintAmt, expectedAGTAfterFee], {
+                account: buyer.account,
+            });
+
+            const goldBalance = await goldToken.read.balanceOf([buyer.account.address]);
+            expect(goldBalance).to.not.equal(0n);
         });
 
         it('should only allow owner to pause/unpause', async function () {
             const { buyer, goldMinter, viem } = await fixture();
 
             await viem.assertions.revertWithCustomErrorWithArgs(
-                goldMinter.write.emergencyPause({ account: buyer.account }),
+                goldMinter.write.emergencyPause([], { account: buyer.account }),
                 goldMinter,
                 'OwnableUnauthorizedAccount',
                 [getAddress(buyer.account.address)],
             );
 
             await viem.assertions.revertWithCustomErrorWithArgs(
-                goldMinter.write.emergencyPause({ account: buyer.account }),
+                goldMinter.write.emergencyPause([], { account: buyer.account }),
                 goldMinter,
                 'OwnableUnauthorizedAccount',
                 [getAddress(buyer.account.address)],
             );
 
             await viem.assertions.revertWithCustomErrorWithArgs(
-                goldMinter.write.emergencyUnpause({ account: buyer.account }),
+                goldMinter.write.emergencyUnpause([], { account: buyer.account }),
                 goldMinter,
                 'OwnableUnauthorizedAccount',
                 [getAddress(buyer.account.address)],
@@ -243,6 +315,8 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         it('should prevent blacklisted user from minting', async function () {
             const { owner, buyer, USDT, goldMinter, viem } = await fixture();
 
+            const mintAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
+
             await goldMinter.write.setLevel([buyer.account.address, 2], {
                 account: owner.account,
             });
@@ -251,15 +325,20 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: owner.account,
             });
 
-            await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+            await USDT.write.approve([goldMinter.address, mintAmt], {
                 account: buyer.account,
             });
 
+            const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
+
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+
+            const expectedAGTAfterFee = expectedAGT - expectedFee;
+
             await viem.assertions.revertWithCustomError(
-                goldMinter.write.requestMint(
-                    [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                    { account: buyer.account },
-                ),
+                goldMinter.write.requestMint([USDT.address, mintAmt, expectedAGTAfterFee], {
+                    account: buyer.account,
+                }),
                 goldMinter,
                 'AMLBlocked',
             );
@@ -275,12 +354,11 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             const agtAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
 
             // Calculate expected AGT amount before fees
-            const expectedAGT = Number(await goldMinter.read.getGoldAmount([USDT.address, agtAmt]));
+            const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, agtAmt])) as bigint;
 
-            // Calculate expected fee
-            const expectedFee = await goldMinter.read.calculateGoldFee([expectedAGT]);
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
 
-            const expectedAGTAfterFee = Number(expectedAGT) - Number(expectedFee);
+            const expectedAGTAfterFee = expectedAGT - expectedFee;
 
             await USDT.write.approve([goldMinter.address, agtAmt], {
                 account: buyer.account,
@@ -291,7 +369,12 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: buyer.account,
             });
 
-            const goldBalance = await goldToken.read.balanceOf([buyer.account.address]);
+            const goldBalance = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+            const burnFee = (await goldMinter.read.calculateGoldFee([goldBalance])) as bigint;
+
+            const expectedUSDAfterBurnFee = Number(
+                await goldMinter.read.getUsdAmount([USDT.address, goldBalance - burnFee]),
+            );
 
             await goldMinter.write.setAMLBlacklist([buyer.account.address, true], {
                 account: owner.account,
@@ -301,10 +384,8 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: buyer.account,
             });
 
-            const expectedOutput = await goldMinter.read.getUsdAmount([USDT.address, goldBalance]);
-
             await viem.assertions.revertWithCustomError(
-                goldMinter.write.requestBurn([USDT.address, goldBalance, expectedOutput], {
+                goldMinter.write.requestBurn([USDT.address, goldBalance, expectedUSDAfterBurnFee], {
                     account: buyer.account,
                 }),
                 goldMinter,
@@ -315,6 +396,8 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         it('should allow trading after removing from blacklist', async function () {
             const { owner, buyer, USDT, goldMinter } = await fixture();
 
+            const mintAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
+
             await goldMinter.write.setLevel([buyer.account.address, 2], {
                 account: owner.account,
             });
@@ -326,14 +409,19 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: owner.account,
             });
 
-            await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+            await USDT.write.approve([goldMinter.address, mintAmt], {
                 account: buyer.account,
             });
 
-            await goldMinter.write.requestMint(
-                [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                { account: buyer.account },
-            );
+            const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
+
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+
+            const expectedAGTAfterFee = expectedAGT - expectedFee;
+
+            await goldMinter.write.requestMint([USDT.address, mintAmt, expectedAGTAfterFee], {
+                account: buyer.account,
+            });
 
             const goldBalance = await goldMinter.read.goldToken();
             expect(goldBalance).to.not.equal(0);
@@ -341,6 +429,8 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
         it('should prevent permit mint for blacklisted user', async function () {
             const { owner, buyer, USDT, goldMinter, viem } = await fixture();
+
+            const mintAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
 
             await goldMinter.write.setLevel([buyer.account.address, 2], {
                 account: owner.account,
@@ -350,23 +440,23 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: owner.account,
             });
 
+            const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
+
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+
+            const expectedAGTAfterFee = expectedAGT - expectedFee;
+
             const signature = await signPermitERC2612({
                 token: USDT,
                 owner: buyer,
                 spender: goldMinter.address,
-                value: GOLD_PRICE_IN_USD_TOKEN,
+                value: mintAmt,
                 deadline: maxUint256,
             });
 
             await viem.assertions.revertWithCustomError(
                 goldMinter.write.requestMintPermit(
-                    [
-                        USDT.address,
-                        GOLD_PRICE_IN_USD_TOKEN,
-                        parseEther(String(fixtureData.goldMintAmt)),
-                        maxUint256,
-                        signature,
-                    ],
+                    [USDT.address, mintAmt, expectedAGTAfterFee, maxUint256, signature],
                     { account: buyer.account },
                 ),
                 goldMinter,
@@ -377,11 +467,12 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         it('should only allow settlers to manage AML blacklist', async function () {
             const { buyer, goldMinter, viem } = await fixture();
 
-            await viem.assertions.revertWith(
+            await viem.assertions.revertWithCustomError(
                 goldMinter.write.setAMLBlacklist([buyer.account.address, true], {
                     account: buyer.account,
                 }),
-                'NOT_SETTLER',
+                goldMinter,
+                'NotSettler',
             );
         });
     });
@@ -390,35 +481,42 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         it('should work correctly when both paused and blacklisted', async function () {
             const { owner, buyer, USDT, goldMinter, viem } = await fixture();
 
+            const mintAmt = GOLD_PRICE_IN_USD_TOKEN * 2n;
+
             await goldMinter.write.setLevel([buyer.account.address, 2], {
                 account: owner.account,
             });
 
-            await goldMinter.write.emergencyPause({ account: owner.account });
+            await goldMinter.write.emergencyPause([], { account: owner.account });
+
             await goldMinter.write.setAMLBlacklist([buyer.account.address, true], {
                 account: owner.account,
             });
 
-            await USDT.write.approve([goldMinter.address, GOLD_PRICE_IN_USD_TOKEN], {
+            await USDT.write.approve([goldMinter.address, mintAmt], {
                 account: buyer.account,
             });
 
+            const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
+
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+
+            const expectedAGTAfterFee = expectedAGT - expectedFee;
+
             await viem.assertions.revertWithCustomError(
-                goldMinter.write.requestMint(
-                    [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                    { account: buyer.account },
-                ),
+                goldMinter.write.requestMint([USDT.address, mintAmt, expectedAGTAfterFee], {
+                    account: buyer.account,
+                }),
                 goldMinter,
                 'EnforcedPause',
             );
 
-            await goldMinter.write.emergencyUnpause({ account: owner.account });
+            await goldMinter.write.emergencyUnpause([], { account: owner.account });
 
             await viem.assertions.revertWithCustomError(
-                goldMinter.write.requestMint(
-                    [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                    { account: buyer.account },
-                ),
+                goldMinter.write.requestMint([USDT.address, mintAmt, expectedAGTAfterFee], {
+                    account: buyer.account,
+                }),
                 goldMinter,
                 'AMLBlocked',
             );
@@ -427,10 +525,9 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 account: owner.account,
             });
 
-            await goldMinter.write.requestMint(
-                [USDT.address, GOLD_PRICE_IN_USD_TOKEN, parseEther(String(fixtureData.goldMintAmt))],
-                { account: buyer.account },
-            );
+            await goldMinter.write.requestMint([USDT.address, mintAmt, expectedAGTAfterFee], {
+                account: buyer.account,
+            });
 
             const goldBalance = await goldMinter.read.goldToken();
             expect(goldBalance).to.not.equal(0);

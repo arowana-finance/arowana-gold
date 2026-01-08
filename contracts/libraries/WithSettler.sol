@@ -7,47 +7,90 @@ import { Ownable } from './Ownable.sol';
 contract WithSettler is Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    event AddSettler(address newSettler);
-    event RemoveSettler(address oldSettler);
+	// ============ Constants ============
 
-    /// @dev Backend Settlers to settle order with specific condition
-    EnumerableSet.AddressSet private _settlers;
+	// keccak256(abi.encode(uint256(keccak256("arowana.storage.WithSettler")) - 1)) & ~bytes32(uint256(0xff))
+	bytes32 private constant WithSettlerStorageLocation =
+		0x7338c697e3704c9b7376ef3421ddd55c9af78fb70ba2f537a061b9fcceca8800;
 
-    modifier onlySettlers() {
-        require(_settlers.contains(msg.sender), 'NOT_SETTLER');
-        _;
-    }
+	// ============ EIP-7201 Storage ============
 
-    function _initializeSettler(address _initOwner) internal {
-        if (_initOwner == address(0)) {
-            _initOwner = msg.sender;
-        }
-        __Ownable_init(_initOwner);
-        _settlers.add(_initOwner);
-        emit AddSettler(_initOwner);
-    }
+	/// @custom:storage-location erc7201:arowana.storage.WithSettler
+	struct WithSettlerStorage {
+		/// @dev Backend Settlers to settle order with specific condition
+		EnumerableSet.AddressSet _settlers;
+	}
+	
+	// ============ Events ============
 
-    function initializeSettler(address _initOwner) public virtual initializer {
-        _initializeSettler(_initOwner);
-    }
+	event AddSettler(address newSettler);
+	event RemoveSettler(address oldSettler);
 
-    function settlers() external view returns (address[] memory) {
-        return _settlers.values();
-    }
+	// ============ Erros ============
+	
+	error NotSettler();
 
-    function addSettler(address _settler) external onlyOwner {
-        require(!_settlers.contains(_settler), 'DUPLICATE_SETTLER');
-        _settlers.add(_settler);
-        emit AddSettler(_settler);
-    }
+    // ============ Modifiers ============
 
-    function removeSettler(address _settler) external onlyOwner {
-        require(_settlers.contains(_settler), 'INVALID_SETTLER');
-        _settlers.remove(_settler);
-        emit RemoveSettler(_settler);
-    }
+	modifier onlySettlers() {
+		WithSettlerStorage storage $ = _getWithSettlerStorage();
+		if(!$._settlers.contains(_msgSender())) revert NotSettler();
+		_;
+	}
 
-    function isSettler(address _settler) internal view returns (bool) {
-        return _settlers.contains(_settler);
-    }
+    // ============ Initializer ============
+
+	function _initializeSettler(address _initOwner) internal {
+		if (_initOwner == address(0)) {
+			_initOwner = _msgSender();
+		}
+		__Ownable_init(_initOwner);
+
+		WithSettlerStorage storage $ = _getWithSettlerStorage();
+		$._settlers.add(_initOwner);
+		emit AddSettler(_initOwner);
+	}
+
+
+    // ============ External Functions ============
+
+	function addSettler(address _settler) external onlyOwner {
+		WithSettlerStorage storage $ = _getWithSettlerStorage();
+		require(!$._settlers.contains(_settler), 'DUPLICATE_SETTLER');
+		$._settlers.add(_settler);
+		emit AddSettler(_settler);
+	}
+
+	function removeSettler(address _settler) external onlyOwner {
+		WithSettlerStorage storage $ = _getWithSettlerStorage();
+		require($._settlers.contains(_settler), 'INVALID_SETTLER');
+		$._settlers.remove(_settler);
+		emit RemoveSettler(_settler);
+	}
+
+	function settlers() external view returns (address[] memory) {
+		WithSettlerStorage storage $ = _getWithSettlerStorage();
+		return $._settlers.values();
+	}
+
+	// ============ Public Functions ============
+
+	function initializeSettler(address _initOwner) public virtual initializer {
+		_initializeSettler(_initOwner);
+	}
+
+	// ============ Internal Functions ============
+
+	function isSettler(address _settler) internal view returns (bool) {
+		WithSettlerStorage storage $ = _getWithSettlerStorage();
+		return $._settlers.contains(_settler);
+	}
+
+	// ============ Private Functions ============
+
+	function _getWithSettlerStorage() private pure returns (WithSettlerStorage storage $) {
+          assembly {
+              $.slot := WithSettlerStorageLocation
+          }
+      }
 }

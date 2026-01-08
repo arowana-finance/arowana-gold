@@ -48,11 +48,11 @@ contract DataFeed is WithSettler {
         address _asset,
         string memory _description
     ) internal virtual {
+		_initializeSettler(_initOwner);
         deploymentTimestamp = block.timestamp;
         version = 6;
         setAsset(_asset);
         setDescription(_description);
-        _initializeSettler(_initOwner);
     }
 
     function setAsset(address _asset) public onlyOwner {

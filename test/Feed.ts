@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { getAddress, parseGwei, zeroHash } from 'viem';
+import { encodeFunctionData, getAddress, parseGwei, zeroHash } from 'viem';
 import { encodeAnswerTimestampPairs, getClients, getTimestamp } from './helpers.js';
 
 type LatestRoundData = [bigint, bigint, bigint, bigint, bigint];
@@ -22,11 +22,21 @@ describe('DataFeed', () => {
         const { owner, viem } = await getClients();
         const { description } = fixtureData;
 
-        const feed = await viem.deployContract('DataFeed');
+        const feedImpl = await viem.deployContract('DataFeed');
+        const feedProxy = await viem.deployContract('InitializableProxy', []);
 
-        await feed.write.initializeFeed([owner.account.address, owner.account.address, description], {
-            account: owner.account,
+        const feedInitData = encodeFunctionData({
+            abi: feedImpl.abi,
+            functionName: 'initializeFeed',
+            args: [owner.account.address, owner.account.address, description],
         });
+
+        await feedProxy.write.initializeProxy(
+            ['DataFeed', owner.account.address, feedImpl.address, feedInitData],
+            { account: owner.account },
+        );
+
+        const feed = await viem.getContractAt('DataFeed', feedProxy.address);
 
         return { owner, feed, viem };
     }
@@ -272,25 +282,36 @@ describe('AGTPriceFeed', () => {
         const { upkeepInterval, upkeepRateInterval, upkeepRateCap, maxBaseGasPrice, updateInterval } =
             fixtureData;
 
-        const priceFeed = await viem.deployContract('AGTPriceFeed');
+        const priceFeedImplementation = await viem.deployContract('AGTPriceFeed');
+        const priceFeedProxy = await viem.deployContract('InitializableProxy', []);
 
-        await priceFeed.write.initializeAGTPriceFeed(
-            [
-                owner.account.address,
-                owner.account.address,
-                'PRICE / USD (mirror)',
-                42161n, // remoteChain (e.g., Arbitrum mainnet chainId)
-                owner.account.address, // remoteChainOracle (arbitrary)
-                routerEOA.account.address, // Router (EOA) – the entity sending the callback
-                owner.account.address, // UpkeepContract (arbitrary)
-                upkeepInterval,
-                upkeepRateInterval,
-                upkeepRateCap,
-                parseGwei(String(maxBaseGasPrice)),
-                updateInterval,
+        const initData = encodeFunctionData({
+            abi: priceFeedImplementation.abi,
+            functionName: 'initializeAGTPriceFeed',
+            args: [
+                {
+                    initOwner: owner.account.address,
+                    asset: owner.account.address,
+                    description: 'PRICE / USD (mirror)',
+                    remoteChain: 42161n, // remoteChain (e.g., Arbitrum mainnet chainId)
+                    remoteChainOracle: owner.account.address, // remoteChainOracle (arbitrary)
+                    router: routerEOA.account.address, // Router (EOA) – the entity sending the callback
+                    upkeepContract: owner.account.address, // UpkeepContract (arbitrary)
+                    upkeepInterval: upkeepInterval,
+                    upkeepRateInterval: upkeepRateInterval,
+                    upkeepRateCap: upkeepRateCap,
+                    maxBaseGasPrice: parseGwei(String(maxBaseGasPrice)),
+                    updateInterval: updateInterval,
+                },
             ],
+        });
+
+        await priceFeedProxy.write.initializeProxy(
+            [`AGT Price Feed`, owner.account!.address, priceFeedImplementation.address, initData],
             { account: owner.account },
         );
+
+        const priceFeed = await viem.getContractAt('AGTPriceFeed', priceFeedProxy.address);
 
         return { owner, routerEOA, priceFeed, viem };
     }

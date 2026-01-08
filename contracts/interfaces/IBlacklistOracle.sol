@@ -20,7 +20,7 @@ interface IBlacklistOracle {
 
     function isBlacklisted(address addr) external view returns (bool);
 
-    function areBlacklisted(address[] memory _addr) external view returns (bool, uint256);
+    function areBlacklisted(address[] memory _addr) external view returns (bool[] memory);
 
     function getBlacklistCount() external view returns (uint256);
 
