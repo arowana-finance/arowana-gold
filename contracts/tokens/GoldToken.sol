@@ -98,6 +98,29 @@ contract GoldToken is InitializableERC20, Ownable {
         _mint(to, amount);
     }
 
+	/**
+	 * @notice Override transferFrom to also check if spender is blacklisted
+	 * @dev Prevents blacklisted addresses from executing transferFrom on behalf of others
+	 */
+	function transferFrom(address from, address to, uint256 value) public virtual override returns (bool) {
+		address spender = _msgSender();
+		_checkBlacklisted(spender);
+		_spendAllowance(from, spender, value);
+		_transfer(from, to, value);
+		return true;
+	}
+
+	/**
+	 * @notice Override burnFrom to also check if spender is blacklisted
+	 * @dev Prevents blacklisted addresses from burning tokens on behalf of others
+	 */
+	function burnFrom(address account, uint256 value) public virtual override {
+		address spender = _msgSender();
+		_checkBlacklisted(spender);
+		_spendAllowance(account, spender, value);
+		_burn(account, value);
+	}
+
 	function changeBlacklistOracle(address _blacklistOracle) public virtual onlyOwner {
 		GoldTokenStorage storage $ = _getGoldTokenStorage();
 		$.blacklistOracle = IBlacklistOracle(_blacklistOracle);
@@ -111,38 +134,51 @@ contract GoldToken is InitializableERC20, Ownable {
 
 	// ============ Internal Functions ============
 
-    /**
-     * Blacklist related functions
-     */
-    function _update(address from, address to, uint256 value) internal virtual override {
-      GoldTokenStorage storage $ = _getGoldTokenStorage();
+	/**
+	 * @notice Check if a single address is blacklisted and revert if so
+	 * @param addr The address to check
+	 */
+	function _checkBlacklisted(address addr) internal view {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
+		if (address($.blacklistOracle) != address(0) && $.blacklistOracle.isBlacklisted(addr)) {
+			address[] memory _blacklisted = new address[](1);
+			_blacklisted[0] = addr;
+			revert BlacklistedAddress(_blacklisted);
+		}
+	}
 
-      if (address($.blacklistOracle) != address(0)) {
-          address[] memory _addrs = new address[](2);
-          _addrs[0] = from;
-          _addrs[1] = to;
+	/**
+	 * @notice Override _update to check if from and to addresses are blacklisted
+	 */
+	function _update(address from, address to, uint256 value) internal virtual override {
+		GoldTokenStorage storage $ = _getGoldTokenStorage();
 
-          bool[] memory _results = $.blacklistOracle.areBlacklisted(_addrs);
+		if (address($.blacklistOracle) != address(0)) {
+			address[] memory _addrs = new address[](2);
+			_addrs[0] = from;
+			_addrs[1] = to;
 
-          uint256 count = 0;
-          for (uint i; i < _results.length; ++i) {
-              if (_results[i]) count++;
-          }
+			bool[] memory _results = $.blacklistOracle.areBlacklisted(_addrs);
 
-          if (count > 0) {
-              address[] memory _blacklisted = new address[](count);
-              uint256 j = 0;
-              for (uint i; i < _results.length; ++i) {
-                  if (_results[i]) {
-                      _blacklisted[j++] = _addrs[i];
-                  }
-              }
-              revert BlacklistedAddress(_blacklisted);
-          }
-      }
+			uint256 count = 0;
+			for (uint i; i < _results.length; ++i) {
+				if (_results[i]) count++;
+			}
 
-      super._update(from, to, value);
-  }
+			if (count > 0) {
+				address[] memory _blacklisted = new address[](count);
+				uint256 j = 0;
+				for (uint i; i < _results.length; ++i) {
+					if (_results[i]) {
+						_blacklisted[j++] = _addrs[i];
+					}
+				}
+				revert BlacklistedAddress(_blacklisted);
+			}
+		}
+
+		super._update(from, to, value);
+	}
 
 	// ============ Private Functions ============
 
