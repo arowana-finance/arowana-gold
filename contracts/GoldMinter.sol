@@ -63,6 +63,12 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         uint256 maxPriceAge;
         uint256 minGoldPrice; // 500e8 (8 decimals)
         uint256 maxGoldPrice; // 10000e8 (8 decimals)
+        // User mint tracking
+        mapping(address => uint256[]) userMintNonces;
+        mapping(address => uint256) userPendingMintCount;
+        // User burn tracking
+        mapping(address => uint256[]) userBurnNonces;
+        mapping(address => uint256) userPendingBurnCount;
     }
 
     // ============ Events ============
@@ -344,13 +350,143 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         return $.amlBlacklist[user];
     }
 
+    /// @notice Get total mint count for a user
+    function getUserMintCount(address user) external view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.userMintNonces[user].length;
+    }
+
+    /// @notice Get pending mint count for a user
+    function getUserPendingMintCount(address user) external view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.userPendingMintCount[user];
+    }
+
+    /// @notice Get mint nonces for a user with pagination
+    /// @param user The user address
+    /// @param offset Starting index
+    /// @param limit Maximum number of nonces to return
+    function getUserMintNonces(
+        address user,
+        uint256 offset,
+        uint256 limit
+    ) external view returns (uint256[] memory) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        uint256[] storage nonces = $.userMintNonces[user];
+        uint256 total = nonces.length;
+
+        if (offset >= total) {
+            return new uint256[](0);
+        }
+
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256[] memory result = new uint256[](end - offset);
+        for (uint256 i = offset; i < end; i++) {
+            result[i - offset] = nonces[i];
+        }
+
+        return result;
+    }
+
+    /// @notice Get mint orders by nonces
+    /// @param nonces Array of mint nonces to query
+    function getMintOrdersByNonces(
+        uint256[] calldata nonces
+    ) external view returns (IGoldMinter.MintOrder[] memory) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        uint256 len = nonces.length;
+        IGoldMinter.MintOrder[] memory orders = new IGoldMinter.MintOrder[](len);
+
+        for (uint256 i = 0; i < len; i++) {
+            if (nonces[i] < $.mintOrders.length) {
+                orders[i] = $.mintOrders[nonces[i]];
+            }
+        }
+
+        return orders;
+    }
+
+	 /// @notice Get total burn count for a user
+    function getUserBurnCount(address user) external view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.userBurnNonces[user].length;
+    }
+
+    /// @notice Get pending burn count for a user
+    function getUserPendingBurnCount(address user) external view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.userPendingBurnCount[user];
+    }
+
+    /// @notice Get burn nonces for a user with pagination
+    /// @param user The user address
+    /// @param offset Starting index
+    /// @param limit Maximum number of nonces to return
+    function getUserBurnNonces(
+        address user,
+        uint256 offset,
+        uint256 limit
+    ) external view returns (uint256[] memory) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        uint256[] storage nonces = $.userBurnNonces[user];
+        uint256 total = nonces.length;
+
+        if (offset >= total) {
+            return new uint256[](0);
+        }
+
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256[] memory result = new uint256[](end - offset);
+        for (uint256 i = offset; i < end; i++) {
+            result[i - offset] = nonces[i];
+        }
+
+        return result;
+    }
+
+    /// @notice Get burn orders by nonces
+    /// @param nonces Array of burn nonces to query
+    function getBurnOrdersByNonces(
+        uint256[] calldata nonces
+    ) external view returns (IGoldMinter.BurnOrder[] memory) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        uint256 len = nonces.length;
+        IGoldMinter.BurnOrder[] memory orders = new IGoldMinter.BurnOrder[](len);
+
+        for (uint256 i = 0; i < len; i++) {
+            if (nonces[i] < $.burnOrders.length) {
+                orders[i] = $.burnOrders[nonces[i]];
+            }
+        }
+
+        return orders;
+    }
+
     // ============ Public Functions ============
 
-    function settleMint(uint256 mintNonce, uint256 goldAmount) public onlyOwner {
+    function settleMint(uint256 mintNonce) public onlyOwner {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        if (mintNonce >= $.mintOrders.length) revert Errors.InvalidNonce();
+
+        // Use gold amount calculated at request time
+        uint256 goldAmount = $.mintOrders[mintNonce].goldAmount;
         _settleMint(mintNonce, goldAmount);
     }
 
-    function settleBurn(uint256 burnNonce, uint256 usdAmount) public onlyOwner {
+    function settleBurn(uint256 burnNonce) public onlyOwner {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        if (burnNonce >= $.burnOrders.length) revert Errors.InvalidNonce();
+
+        // Use USD amount calculated at request time
+        uint256 usdAmount = $.burnOrders[burnNonce].usdAmount;
         _settleBurn(burnNonce, usdAmount);
     }
 
@@ -368,9 +504,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         // Apply maximum 5% slippage
         uint256 expectedOutput = getGoldAmount(_usdToken, _usdAmount);
+        uint256 feeAmount = calculateGoldFee(expectedOutput);
 
         // Validate request using extracted functions
-        _validateSlippage(expectedOutput, _minGoldAmount, slippage_);
+        _validateSlippage(expectedOutput - feeAmount, _minGoldAmount, slippage_);
         _validateMinimumAmount(_minGoldAmount, $.minGoldAmount);
         // commented out here to allow overbooking over reserves
         _validateUserPermissions($, tradeLevel_);
@@ -387,16 +524,21 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
                 usdToken: address(usdToken),
                 usdAmount: _usdAmount,
                 minGoldAmount: _minGoldAmount,
-                goldAmount: 0,
+                goldAmount: expectedOutput,
+                feeAmount: feeAmount,
                 success: false,
                 isSettled: false
             })
         );
 
+        $.userMintNonces[msg.sender].push(mintNonce);
+
         emit RequestMint(mintNonce, msg.sender, address(usdToken), _usdAmount, _minGoldAmount);
 
         if ($.autoSettle) {
             _settleMint(mintNonce, expectedOutput);
+        } else {
+            $.userPendingMintCount[msg.sender]++;
         }
     }
 
@@ -412,8 +554,9 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         uint16 slippage_ = $.slippage;
         IGoldMinter.Levels tradeLevel_ = $.tradeLevel;
 
-        // Apply maximum 5% slippage
-        uint256 expectedOutput = getUsdAmount(_usdToken, _goldAmount);
+        // Calculate expected USD after fee deduction at request time
+        uint256 feeAmount = calculateGoldFee(_goldAmount);
+        uint256 expectedOutput = getUsdAmount(_usdToken, _goldAmount - feeAmount);
 
         // Validate request using extracted functions
         _validateSlippage(expectedOutput, _minUsdAmount, slippage_);
@@ -430,11 +573,14 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
                 usdToken: address(usdToken),
                 goldAmount: _goldAmount,
                 minUsdAmount: _minUsdAmount,
-                usdAmount: 0,
+                usdAmount: expectedOutput,
+                feeAmount: feeAmount,
                 success: false,
                 isSettled: false
             })
         );
+
+        $.userBurnNonces[msg.sender].push(burnNonce);
 
         $.goldToken.safeTransferFrom(msg.sender, address(this), _goldAmount);
 
@@ -442,6 +588,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         if ($.autoSettle && canBurn(IERC20Exp(usdToken), expectedOutput)) {
             _settleBurn(burnNonce, expectedOutput);
+        } else {
+            $.userPendingBurnCount[msg.sender]++;
         }
     }
 
@@ -540,7 +688,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         if ($.mintOrders[mintNonce].isSettled) revert Errors.AlreadySettled();
 		if ($.amlBlacklist[$.mintOrders[mintNonce].buyer]) revert Errors.AMLBlocked();
 
-		uint256 feeAmount = calculateGoldFee(goldAmount);
+		uint256 feeAmount = $.mintOrders[mintNonce].feeAmount;
   		uint256 netGoldAmount = goldAmount - feeAmount;
   		bool success = netGoldAmount >= $.mintOrders[mintNonce].minGoldAmount;
 
@@ -563,6 +711,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         $.mintOrders[mintNonce].success = success;
         $.mintOrders[mintNonce].isSettled = true;
 
+        address buyer = $.mintOrders[mintNonce].buyer;
+        if ($.userPendingMintCount[buyer] > 0) {
+            $.userPendingMintCount[buyer]--;
+        }
+
         emit SettleMint(mintNonce, goldAmount, success);
     }
 
@@ -576,21 +729,25 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         IERC20Exp usdToken = IERC20Exp($.burnOrders[burnNonce].usdToken);
         uint256 goldAmount = $.burnOrders[burnNonce].goldAmount;
 
-		uint256 feeAmount = calculateGoldFee(goldAmount);
-  		uint256 usdAfterFee = getUsdAmount(address(usdToken), goldAmount - feeAmount);
-  		bool success = usdAfterFee >= $.burnOrders[burnNonce].minUsdAmount && canBurn(usdToken, usdAfterFee);
+		uint256 feeAmount = $.burnOrders[burnNonce].feeAmount;
+  		bool success = usdAmount >= $.burnOrders[burnNonce].minUsdAmount && canBurn(usdToken, usdAmount);
 
         if (!success) {
             $.goldToken.safeTransfer($.burnOrders[burnNonce].seller, goldAmount);
         } else {
-            $.burnOrders[burnNonce].usdAmount = usdAfterFee;
             $.goldToken.burn(goldAmount - feeAmount);
             $.goldToken.safeTransfer($.usdRecipient, feeAmount);
-            usdToken.safeTransferFrom($.usdRecipient, $.burnOrders[burnNonce].seller, usdAfterFee);
+            usdToken.safeTransferFrom($.usdRecipient, $.burnOrders[burnNonce].seller, usdAmount);
         }
 
         $.burnOrders[burnNonce].success = success;
         $.burnOrders[burnNonce].isSettled = true;
+
+        address seller = $.burnOrders[burnNonce].seller;
+		
+        if ($.userPendingBurnCount[seller] > 0) {
+            $.userPendingBurnCount[seller]--;
+        }
 
         emit SettleBurn(burnNonce, usdAmount, success);
     }
@@ -828,7 +985,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         address signer = ECDSA.recover(hash, signature);
 
         return isSettler(signer);
-    }
+    }   
 
     // ============ Private Functions ============
 

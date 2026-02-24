@@ -21,6 +21,7 @@ interface IGoldMinter {
      * @param usdAmount Amount of USD tokens being exchanged
      * @param minGoldAmount Minimum gold amount the buyer expects to receive
      * @param goldAmount Actual gold amount minted (set after settlement)
+     * @param feeAmount Fee amount in gold calculated at request time
      * @param success Whether the order was successfully executed
      * @param isSettled Whether the order has been processed by backend
      */
@@ -30,6 +31,7 @@ interface IGoldMinter {
         uint256 usdAmount;
         uint256 minGoldAmount;
         uint256 goldAmount;
+        uint256 feeAmount;
         bool success;
         bool isSettled;
     }
@@ -41,6 +43,7 @@ interface IGoldMinter {
      * @param goldAmount Amount of gold tokens being burned
      * @param minUsdAmount Minimum USD amount the seller expects to receive
      * @param usdAmount Actual USD amount paid (set after settlement)
+     * @param feeAmount Fee amount in gold calculated at request time
      * @param success Whether the order was successfully executed
      * @param isSettled Whether the order has been processed by backend
      */
@@ -50,6 +53,7 @@ interface IGoldMinter {
         uint256 goldAmount;
         uint256 minUsdAmount;
         uint256 usdAmount;
+        uint256 feeAmount;
         bool success;
         bool isSettled;
     }
