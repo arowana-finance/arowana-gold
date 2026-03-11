@@ -179,7 +179,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN]),
             );
 
-            const expectedFee = await goldMinter.read.calculateGoldFee([expectedAGT]);
+            const expectedFee = await goldMinter.read.calculateGoldFee([expectedAGT, true]);
 
             const expectedAGTAfterFee = Number(expectedAGT) - Number(expectedFee);
 
@@ -209,7 +209,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
             const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
             const expectedAGTAfterFee = expectedAGT - expectedFee;
 
@@ -218,7 +218,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             });
 
             const goldBalance = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
-            const burnFee = (await goldMinter.read.calculateGoldFee([goldBalance])) as bigint;
+            const burnFee = (await goldMinter.read.calculateGoldFee([goldBalance, false])) as bigint;
 
             const expectedUSDAfterBurnFee = Number(
                 await goldMinter.read.getUsdAmount([USDT.address, goldBalance - burnFee]),
@@ -257,7 +257,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
             const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
             const expectedAGTAfterFee = expectedAGT - expectedFee;
 
@@ -331,7 +331,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
             const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
             const expectedAGTAfterFee = expectedAGT - expectedFee;
 
@@ -356,7 +356,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             // Calculate expected AGT amount before fees
             const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, agtAmt])) as bigint;
 
-            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
             const expectedAGTAfterFee = expectedAGT - expectedFee;
 
@@ -370,7 +370,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             });
 
             const goldBalance = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
-            const burnFee = (await goldMinter.read.calculateGoldFee([goldBalance])) as bigint;
+            const burnFee = (await goldMinter.read.calculateGoldFee([goldBalance, false])) as bigint;
 
             const expectedUSDAfterBurnFee = Number(
                 await goldMinter.read.getUsdAmount([USDT.address, goldBalance - burnFee]),
@@ -415,7 +415,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
             const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
             const expectedAGTAfterFee = expectedAGT - expectedFee;
 
@@ -442,7 +442,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
             const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
             const expectedAGTAfterFee = expectedAGT - expectedFee;
 
@@ -499,7 +499,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
             const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintAmt])) as bigint;
 
-            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+            const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
             const expectedAGTAfterFee = expectedAGT - expectedFee;
 

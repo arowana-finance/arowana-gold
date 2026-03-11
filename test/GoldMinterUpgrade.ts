@@ -160,7 +160,10 @@ describe('GoldMinter - Upgrade Tests', function () {
             account: owner.account,
         });
 
-        await goldMinter.write.updateFees([75], {
+        await goldMinter.write.updateMintFee([75], {
+            account: owner.account,
+        });
+        await goldMinter.write.updateRedeemFee([75], {
             account: owner.account,
         });
 
@@ -170,11 +173,13 @@ describe('GoldMinter - Upgrade Tests', function () {
 
         // Store initial state values
         const initialSlippage = await goldMinter.read.slippage();
-        const initialFees = await goldMinter.read.fees();
+        const initialMintFee = await goldMinter.read.mintFee();
+        const initialRedeemFee = await goldMinter.read.redeemFee();
         const initialAMLStatus = await goldMinter.read.isAMLBlacklisted([buyer.account.address]);
 
         expect(initialSlippage).to.equal(300);
-        expect(initialFees).to.equal(75);
+        expect(initialMintFee).to.equal(75);
+        expect(initialRedeemFee).to.equal(75);
         expect(initialAMLStatus).to.be.true;
 
         // Deploy new implementation
@@ -190,11 +195,13 @@ describe('GoldMinter - Upgrade Tests', function () {
 
         // Check that state was preserved
         const preservedSlippage = await upgradedGoldMinter.read.slippage();
-        const preservedFees = await upgradedGoldMinter.read.fees();
+        const preservedMintFee = await upgradedGoldMinter.read.mintFee();
+        const preservedRedeemFee = await upgradedGoldMinter.read.redeemFee();
         const preservedAMLStatus = await upgradedGoldMinter.read.isAMLBlacklisted([buyer.account.address]);
 
         expect(preservedSlippage).to.equal(initialSlippage);
-        expect(preservedFees).to.equal(initialFees);
+        expect(preservedMintFee).to.equal(initialMintFee);
+        expect(preservedRedeemFee).to.equal(initialRedeemFee);
         expect(preservedAMLStatus).to.equal(initialAMLStatus);
 
         // Verify functionality still works
@@ -256,7 +263,7 @@ describe('GoldMinter - Upgrade Tests', function () {
         const expectedAGT = (await goldMinter.read.getGoldAmount([USDT.address, agtAmt])) as bigint;
 
         // Calculate expected fee
-        const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT])) as bigint;
+        const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
 
         const expectedAGTAfterFee = expectedAGT - expectedFee;
 
@@ -315,7 +322,8 @@ describe('GoldMinter - Upgrade Tests', function () {
             USDT: await goldMinter.read.USDT(),
             USDC: await goldMinter.read.USDC(),
             slippage: await goldMinter.read.slippage(),
-            fees: await goldMinter.read.fees(),
+            mintFee: await goldMinter.read.mintFee(),
+            redeemFee: await goldMinter.read.redeemFee(),
         };
 
         // Upgrade implementation
@@ -332,14 +340,16 @@ describe('GoldMinter - Upgrade Tests', function () {
             USDT: await upgradedGoldMinter.read.USDT(),
             USDC: await upgradedGoldMinter.read.USDC(),
             slippage: await upgradedGoldMinter.read.slippage(),
-            fees: await upgradedGoldMinter.read.fees(),
+            mintFee: await upgradedGoldMinter.read.mintFee(),
+            redeemFee: await upgradedGoldMinter.read.redeemFee(),
         };
 
         expect(postUpgradeState.goldToken).to.equal(preUpgradeState.goldToken);
         expect(postUpgradeState.USDT).to.equal(preUpgradeState.USDT);
         expect(postUpgradeState.USDC).to.equal(preUpgradeState.USDC);
         expect(postUpgradeState.slippage).to.equal(preUpgradeState.slippage);
-        expect(postUpgradeState.fees).to.equal(preUpgradeState.fees);
+        expect(postUpgradeState.mintFee).to.equal(preUpgradeState.mintFee);
+        expect(postUpgradeState.redeemFee).to.equal(preUpgradeState.redeemFee);
     });
 
     it('should successfully upgrade multiple times', async function () {

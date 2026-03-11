@@ -1,4 +1,4 @@
-import hre, { network } from 'hardhat';
+import { network } from 'hardhat';
 import { Logger } from 'logger-chain';
 import {
     parseUnits,
@@ -13,8 +13,8 @@ import {
 } from 'viem';
 
 import { calculateSwap, getGoldStats } from '../src/gold.js';
-import { getGoldPrice } from './goldPrice.js';
 import { ContractTypesMap } from 'hardhat/types/artifacts';
+import { getGoldPrice } from './goldPrice.js';
 
 const { viem } = await network.connect();
 
@@ -23,7 +23,6 @@ const AGT_SYMBOL = 'AGT';
 const USD_TOKEN_DECIMALS = 6;
 const ORACLE_DECIMALS = 8;
 
-const GOLD_RESERVE = parseUnits('10000', ORACLE_DECIMALS);
 const logger = new Logger();
 
 async function logTx(name: string, txHashPromise: Promise<Hex>) {
@@ -97,6 +96,31 @@ async function getActors() {
     return { owner, buyer };
 }
 
+async function deployBlacklistOracle(owner: WalletClient) {
+    const blacklistOracleImplementation = await viem.deployContract('BlacklistOracle', []);
+    await logDeploy('BlacklistOracleImplementation', blacklistOracleImplementation.address);
+
+    const blacklistOracleProxy = await viem.deployContract('InitializableProxy', []);
+    await logDeploy('BlacklistOracleProxy', blacklistOracleProxy.address);
+
+    const initData = encodeFunctionData({
+        abi: blacklistOracleImplementation.abi,
+        functionName: 'initializeOracle',
+        args: ['Blacklist Oracle', owner.account!.address],
+    });
+
+    await logTx(
+        'Init BlacklistOracle',
+        blacklistOracleProxy.write.initializeProxy(
+            ['Blacklist Oracle', owner.account!.address, blacklistOracleImplementation.address, initData],
+            { account: owner.account },
+        ),
+    );
+
+    const blacklistOracle = await viem.getContractAt('BlacklistOracle', blacklistOracleProxy.address);
+    return { blacklistOracle, blacklistOracleImplementation, blacklistOracleProxy };
+}
+
 /** deploy tokens (USDT/USDC) + initial distribution */
 async function deployTokens(owner: WalletClient, buyer: WalletClient) {
     const USDT = await viem.deployContract('ERC20Mock', [
@@ -117,13 +141,13 @@ async function deployTokens(owner: WalletClient, buyer: WalletClient) {
 
     await logTx(
         'Sending USDT to Buyer',
-        USDT.write.transfer([buyer.account!.address, parseUnits('200', USD_TOKEN_DECIMALS)], {
+        USDT.write.transfer([buyer.account!.address, parseUnits('5000', USD_TOKEN_DECIMALS)], {
             account: owner.account,
         }),
     );
     await logTx(
         'Sending USDC to Buyer',
-        USDC.write.transfer([buyer.account!.address, parseUnits('200', USD_TOKEN_DECIMALS)], {
+        USDC.write.transfer([buyer.account!.address, parseUnits('5000', USD_TOKEN_DECIMALS)], {
             account: owner.account,
         }),
     );
@@ -132,7 +156,7 @@ async function deployTokens(owner: WalletClient, buyer: WalletClient) {
 }
 
 /** GoldToken (upgradeable: Impl + Proxy + initialize) */
-async function deployGoldToken(owner: WalletClient) {
+async function deployGoldToken(owner: WalletClient, blacklistOracle: Address) {
     const goldTokenImplementation = await viem.deployContract('GoldToken', []);
     await logDeploy('GoldTokenImplementation', goldTokenImplementation.address);
 
@@ -142,7 +166,7 @@ async function deployGoldToken(owner: WalletClient) {
     const initData = encodeFunctionData({
         abi: goldTokenImplementation.abi,
         functionName: 'initializeGoldToken',
-        args: [owner.account!.address],
+        args: [owner.account!.address, blacklistOracle],
     });
 
     await logTx(
@@ -157,8 +181,23 @@ async function deployGoldToken(owner: WalletClient) {
     return { goldToken, goldTokenImplementation, goldTokenProxy };
 }
 
-/** deploy and initialize oracles (price/reserve) */
-async function deployGoldOracle(owner: WalletClient, goldToken: ContractTypesMap['GoldToken']) {
+/** attach to an already deployed feed (hardcoded address) */
+async function getTokens(owner: WalletClient, buyer: WalletClient) {
+    const { USDT, USDC } = await deployTokens(owner, buyer);
+
+    const goldPriceFeed = await viem.getContractAt(
+        'AGTPriceFeed',
+        '0xc6323b645cf5822db1e03df44f62e9b8dc5b6924',
+    );
+
+    logger.debug(
+        `Gold Price: $${formatUnits((await goldPriceFeed.read.latestAnswer()) as bigint, ORACLE_DECIMALS)}`,
+    );
+
+    return { USDT, USDC, goldPriceFeed };
+}
+
+async function deployPriceFeed(owner: WalletClient, goldToken: ContractTypesMap['GoldToken']) {
     const goldPrice = String(await getGoldPrice());
 
     const goldPriceFeed = await viem.deployContract('DataFeed', []);
@@ -181,20 +220,19 @@ async function deployGoldOracle(owner: WalletClient, goldToken: ContractTypesMap
         }),
     );
 
-    return { goldPriceFeed };
-}
-
-/** attach to an already deployed feed (hardcoded address) */
-async function getTokens(owner: WalletClient, buyer: WalletClient) {
-    const { USDT, USDC } = await deployTokens(owner, buyer);
-
-    const goldPriceFeed = await viem.getContractAt('DataFeed', '0xc6323b645cf5822db1e03df44f62e9b8dc5b6924');
-
-    logger.debug(
-        `Gold Price: $${formatUnits((await goldPriceFeed.read.latestAnswer()) as bigint, ORACLE_DECIMALS)}`,
+    await logTx(
+        'Set Gold Oracle Price',
+        goldPriceFeed.write.updateAnswer([parseUnits(goldPrice, ORACLE_DECIMALS)], {
+            account: owner.account,
+        }),
     );
 
-    return { USDT, USDC, goldPriceFeed };
+    // actual contract handle attached to the proxy address
+    const agtPriceFeed = await viem.getContractAt('DataFeed', goldPriceFeed.address);
+
+    return {
+        agtPriceFeed,
+    };
 }
 
 /** GoldMinter (upgradeable: Impl + Proxy + initialize) */
@@ -203,7 +241,7 @@ async function deployGoldMinter(
     USDT: ContractTypesMap['ERC20Mock'],
     USDC: ContractTypesMap['ERC20Mock'],
     goldToken: ContractTypesMap['GoldToken'],
-    goldPriceFeed: ContractTypesMap['DataFeed'],
+    goldPriceFeed: ContractTypesMap['AGTPriceFeed'],
 ) {
     const goldMinterImplementation = await viem.deployContract('GoldMinter', []);
     await logDeploy('GoldMinterImplementation', goldMinterImplementation.address);
@@ -277,7 +315,7 @@ async function requestMint(
         goldMinter,
     });
 
-    const inputAmount = 200;
+    const inputAmount = 500;
     const { outputAmount, outputOnSlippage } = calculateSwap({
         inputAmount,
         isBuy: true,
@@ -291,18 +329,20 @@ async function requestMint(
         `RequestMint: Getting ${outputAmount} (expected: ${outputOnSlippage}) oz for $${inputAmount}`,
     );
 
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+
     const signature = await signPermitERC2612({
         token: USDT,
         owner: buyer.account!.address,
         spender: goldMinter.address,
         value: usdAmount,
-        deadline: maxUint256,
+        deadline: deadline,
     });
 
     await logTx(
         'RequestMint: Mint',
         goldMinter.write.requestMintPermit(
-            [USDT.address, usdAmount, goldAmountOnSlippage, maxUint256, signature],
+            [USDT.address, usdAmount, goldAmountOnSlippage, deadline, signature],
             {
                 account: buyer.account,
             },
@@ -344,19 +384,19 @@ async function requestBurn(
     logger.debug(
         `RequestBurn: Getting $${outputAmount} (expected: $${outputOnSlippage}) for ${inputAmount} oz`,
     );
-
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
     const signature = await signPermitERC2612({
         token: goldToken,
         owner: buyer.account!.address,
         spender: goldMinter.address,
         value: goldAmount,
-        deadline: maxUint256,
+        deadline: deadline,
     });
 
     await logTx(
         'RequestBurn: Burn',
         goldMinter.write.requestBurnPermit(
-            [USDT.address, goldAmount, usdAmountOnSlippage, maxUint256, signature],
+            [USDT.address, goldAmount, usdAmountOnSlippage, deadline, signature],
             {
                 account: buyer.account,
             },
@@ -376,25 +416,27 @@ async function deploy() {
     logger.debug('Owner', `${owner.account.address}`);
     logger.debug('Buyer', `${buyer.account.address}`);
     const { USDT, USDC } = await deployTokens(owner, buyer);
-    const { goldToken, goldTokenImplementation } = await deployGoldToken(owner);
-    const { goldPriceFeed } = await deployGoldOracle(owner, goldToken);
+    const { blacklistOracle } = await deployBlacklistOracle(owner);
+    const { goldToken, goldTokenImplementation } = await deployGoldToken(owner, blacklistOracle.address);
+    // const { goldPriceFeed } = await getTokens(owner, buyer);
+    const { agtPriceFeed } = await deployPriceFeed(owner, goldToken);
     const { goldMinter, goldMinterImplementation } = await deployGoldMinter(
         owner,
         USDT,
         USDC,
         goldToken,
-        goldPriceFeed,
+        agtPriceFeed,
     );
 
-    await requestMint(buyer, USDT, goldToken, goldPriceFeed, goldMinter);
-    await requestBurn(buyer, USDT, goldToken, goldPriceFeed, goldMinter);
+    await requestMint(buyer, USDT, goldToken, agtPriceFeed, goldMinter);
+    await requestBurn(buyer, USDT, goldToken, agtPriceFeed, goldMinter);
 
     console.log({
         USDT: USDT.address,
         USDC: USDC.address,
         goldToken: goldToken.address,
         goldTokenImplementation: goldTokenImplementation.address,
-        goldPriceFeed: goldPriceFeed.address,
+        goldPriceFeed: agtPriceFeed.address,
         goldMinter: goldMinter.address,
         goldMinterImplementation: goldMinterImplementation.address,
     });
