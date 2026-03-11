@@ -54,7 +54,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         IGoldMinter.BurnOrder[] burnOrders;
         IGoldMinter.Levels tradeLevel;
         uint16 slippage;
-        uint16 fees;
+        uint16 mintSpread;      // Spread for mint (e.g., 75 = 0.75%)
+        uint16 redeemSpread;    // Spread for redeem (e.g., 75 = 0.75%)
+        uint16 mintFee;         // Fee for mint (e.g., 25 = 0.25%)
+        uint16 redeemFee;       // Fee for redeem (e.g., 25 = 0.25%)
         uint256 minGoldAmount;
         uint256 minGoldFee;
         uint256 minGoldFeeAmount;
@@ -80,7 +83,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         uint256 usdAmount,
         uint256 minGoldAmount
     );
-    event SettleMint(uint256 indexed nonce, uint256 goldAmount, bool success);
+    event SettleMint(uint256 indexed nonce, uint256 goldAmount, uint256 feeAmount, bool success);
     event RequestBurn(
         uint256 indexed nonce,
         address indexed seller,
@@ -88,13 +91,16 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         uint256 goldAmount,
         uint256 minUsdAmount
     );
-    event SettleBurn(uint256 indexed nonce, uint256 usdAmount, bool success);
+    event SettleBurn(uint256 indexed nonce, uint256 usdAmount, uint256 feeAmount, bool success);
 
     event UpdateLevel(address indexed user, IGoldMinter.Levels level);
     event UpdateSlippage(uint16 newSlippage);
     event UpdatePriceFeed(address newPriceFeed);
     event UpdateMaxPriceAge(uint256 newMaxPriceAge);
-    event UpdateFees(uint16 newFees);
+    event UpdateMintSpread(uint16 newMintSpread);
+    event UpdateRedeemSpread(uint16 newRedeemSpread);
+    event UpdateMintFee(uint16 newMintFee);
+    event UpdateRedeemFee(uint16 newRedeemFee);
     event UpdateMinGold(uint256 minGoldAmount);
     event UpdateMinGoldFee(uint256 minGoldFee);
     event UpdateMinGoldFeeAmount(uint256 minGoldFeeAmount);
@@ -163,7 +169,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         $.goldPriceFeed = IPriceFeed(_goldPriceFeed);
 
         $.slippage = 500; // 5%
-        $.fees = 40; // 0.4%
+        $.mintSpread = 75; // 0.75%
+        $.redeemSpread = 75; // 0.75%
+        $.mintFee = 25; // 0.25%
+        $.redeemFee = 25; // 0.25%
         $.minGoldAmount = 1 ether; // 1 gram
         $.minGoldFee = 0.01 ether; // 0.01 gram
         $.minGoldFeeAmount = 1 ether; // 1 gram
@@ -285,11 +294,32 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         emit UpdateMaxPriceAge(_age);
     }
 
-    function updateFees(uint16 _fees) external onlyOwner {
-        if (_fees >= 500) revert Errors.Overflow();
+    function updateMintSpread(uint16 _mintSpread) external onlyOwner {
+        if (_mintSpread > 300) revert Errors.Overflow(); // Max 3%
         GoldMinterStorage storage $ = _getGoldMinterStorage();
-        $.fees = _fees;
-        emit UpdateFees(_fees);
+        $.mintSpread = _mintSpread;
+        emit UpdateMintSpread(_mintSpread);
+    }
+
+    function updateRedeemSpread(uint16 _redeemSpread) external onlyOwner {
+        if (_redeemSpread > 300) revert Errors.Overflow(); // Max 3%
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.redeemSpread = _redeemSpread;
+        emit UpdateRedeemSpread(_redeemSpread);
+    }
+
+    function updateMintFee(uint16 _mintFee) external onlyOwner {
+        if (_mintFee > 100) revert Errors.Overflow(); // Max 1%
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.mintFee = _mintFee;
+        emit UpdateMintFee(_mintFee);
+    }
+
+    function updateRedeemFee(uint16 _redeemFee) external onlyOwner {
+        if (_redeemFee > 100) revert Errors.Overflow(); // Max 1%
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.redeemFee = _redeemFee;
+        emit UpdateRedeemFee(_redeemFee);
     }
 
     function updateMinGold(uint256 _minGold) external onlyOwner {
@@ -504,7 +534,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
         // Apply maximum 5% slippage
         uint256 expectedOutput = getGoldAmount(_usdToken, _usdAmount);
-        uint256 feeAmount = calculateGoldFee(expectedOutput);
+        uint256 feeAmount = calculateGoldFee(expectedOutput, true);
 
         // Validate request using extracted functions
         _validateSlippage(expectedOutput - feeAmount, _minGoldAmount, slippage_);
@@ -555,7 +585,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         IGoldMinter.Levels tradeLevel_ = $.tradeLevel;
 
         // Calculate expected USD after fee deduction at request time
-        uint256 feeAmount = calculateGoldFee(_goldAmount);
+        uint256 feeAmount = calculateGoldFee(_goldAmount, false);
         uint256 expectedOutput = getUsdAmount(_usdToken, _goldAmount - feeAmount);
 
         // Validate request using extracted functions
@@ -599,8 +629,12 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         (uint256 latestPrice, uint8 priceOracleDecimals) = _getValidatedPrice();
         (uint8 goldDecimals, , , ) = _getTokenDecimals($);
         uint8 usdDecimals = IERC20Exp(usdToken).decimals();
-        // (10 ** 6) * (10 ** 10) / 299315000000
-        return (usdAmount * 10 ** (priceOracleDecimals + goldDecimals - usdDecimals)) / latestPrice;
+
+        // Apply mintSpread: price increases by mintSpread% (user gets less gold)
+        // Formula: goldAmount = usdAmount / (price * (1 + spread))
+        uint256 spreadAdjustedPrice = (latestPrice * (10000 + $.mintSpread)) / 10000;
+
+        return (usdAmount * 10 ** (priceOracleDecimals + goldDecimals - usdDecimals)) / spreadAdjustedPrice;
     }
 
     function getUsdAmount(address usdToken, uint256 goldAmount) public view returns (uint256) {
@@ -609,8 +643,12 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         (uint256 latestPrice, uint8 priceOracleDecimals) = _getValidatedPrice();
         (uint8 goldDecimals, , , ) = _getTokenDecimals($);
         uint8 usdDecimals = IERC20Exp(usdToken).decimals();
-        // (10 ** 8 * 299315000000 / 10 ** 10)
-        return (goldAmount * latestPrice) / 10 ** (priceOracleDecimals + goldDecimals - usdDecimals);
+
+        // Apply redeemSpread: price decreases by redeemSpread% (user gets less USD)
+        // Formula: usdAmount = goldAmount * price * (1 - spread)
+        uint256 spreadAdjustedPrice = (latestPrice * (10000 - $.redeemSpread)) / 10000;
+
+        return (goldAmount * spreadAdjustedPrice) / 10 ** (priceOracleDecimals + goldDecimals - usdDecimals);
     }
 
     function canBurn(IERC20Exp usdToken, uint256 usdAmount) public view returns (bool) {
@@ -619,9 +657,21 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
              usdToken.allowance($.usdRecipient, address(this)) >= usdAmount;
     }
 
-    function fees() public view returns (uint16) {
+    function mintSpread() public view returns (uint16) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
-        return $.fees;
+        return $.mintSpread;
+    }
+    function redeemSpread() public view returns (uint16) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.redeemSpread;
+    }
+    function mintFee() public view returns (uint16) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.mintFee;
+    }
+    function redeemFee() public view returns (uint16) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.redeemFee;
     }
     function goldToken() public view returns (address) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
@@ -665,18 +715,20 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
     }
 
     /// @dev Return fee amount in Gold
-    function calculateGoldFee(uint256 _goldAmount) public view returns (uint256) {
+    /// @param _goldAmount Amount of gold to calculate fee for
+    /// @param isMint True for mint fee, false for redeem fee
+    function calculateGoldFee(uint256 _goldAmount, bool isMint) public view returns (uint256) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
 
         // Cache fee variables for efficiency
         uint256 minGoldFeeAmount_ = $.minGoldFeeAmount;
         uint256 minGoldFee_ = $.minGoldFee;
-        uint16 fees_ = $.fees;
+        uint16 feeRate = isMint ? $.mintFee : $.redeemFee;
 
         if (_goldAmount < minGoldFeeAmount_) {
             return minGoldFee_;
         }
-        return (_goldAmount * fees_) / 10000;
+        return (_goldAmount * feeRate) / 10000;
     }
 
     // ============ Internal Functions ============
@@ -716,7 +768,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
             $.userPendingMintCount[buyer]--;
         }
 
-        emit SettleMint(mintNonce, goldAmount, success);
+        emit SettleMint(mintNonce, goldAmount,feeAmount, success);
     }
 
     function _settleBurn(uint256 burnNonce, uint256 usdAmount) internal {
@@ -749,7 +801,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
             $.userPendingBurnCount[seller]--;
         }
 
-        emit SettleBurn(burnNonce, usdAmount, success);
+        emit SettleBurn(burnNonce, usdAmount,feeAmount, success);
     }
 
     /// @dev Get cached decimals for tokens to avoid repeated calls
@@ -879,7 +931,10 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         GoldMinterStorage storage $ = _getGoldMinterStorage();
 
         emit UpdateSlippage($.slippage);
-        emit UpdateFees($.fees);
+        emit UpdateMintSpread($.mintSpread);
+        emit UpdateRedeemSpread($.redeemSpread);
+        emit UpdateMintFee($.mintFee);
+        emit UpdateRedeemFee($.redeemFee);
         emit UpdateMinGold($.minGoldAmount);
         emit UpdateMinGoldFee($.minGoldFee);
         emit UpdateMinGoldFeeAmount($.minGoldFeeAmount);
