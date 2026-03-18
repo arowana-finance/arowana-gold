@@ -129,6 +129,17 @@ describe('GoldMinter', function () {
 
         const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
+        // Grant all roles to owner for testing
+        const SETTLER_ROLE = await goldMinter.read.SETTLER_ROLE();
+        const PARAMETER_MANAGER_ROLE = await goldMinter.read.PARAMETER_MANAGER_ROLE();
+        const INFRA_MANAGER_ROLE = await goldMinter.read.INFRA_MANAGER_ROLE();
+        const KYC_MANAGER_ROLE = await goldMinter.read.KYC_MANAGER_ROLE();
+
+        await goldMinter.write.grantRole([SETTLER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([PARAMETER_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], { account: owner.account });
+
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,
         });
@@ -170,6 +181,12 @@ describe('GoldMinter', function () {
         );
 
         const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
+
+        // Grant INFRA_MANAGER_ROLE to owner
+        const INFRA_MANAGER_ROLE = await goldMinter.read.INFRA_MANAGER_ROLE();
+        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], {
+            account: owner.account,
+        });
 
         await goldMinter.write.updatePriceFeed([goldPriceFeed.address], {
             account: owner.account,
@@ -1317,25 +1334,27 @@ describe('GoldMinter', function () {
             );
         });
 
-        it('should revert when non-owner tries to update mintSpread', async function () {
+        it('should revert when non-authorized account tries to update mintSpread', async function () {
             const { buyer, goldMinter, viem } = await fixture();
 
+            const PARAMETER_MANAGER_ROLE = await goldMinter.read.PARAMETER_MANAGER_ROLE();
             await viem.assertions.revertWithCustomErrorWithArgs(
                 goldMinter.write.updateMintSpread([100], { account: buyer.account }),
                 goldMinter,
-                'OwnableUnauthorizedAccount',
-                [getAddress(buyer.account.address)],
+                'AccessControlUnauthorizedAccount',
+                [getAddress(buyer.account.address), PARAMETER_MANAGER_ROLE],
             );
         });
 
-        it('should revert when non-owner tries to update redeemSpread', async function () {
+        it('should revert when non-authorized account tries to update redeemSpread', async function () {
             const { buyer, goldMinter, viem } = await fixture();
 
+            const PARAMETER_MANAGER_ROLE = await goldMinter.read.PARAMETER_MANAGER_ROLE();
             await viem.assertions.revertWithCustomErrorWithArgs(
                 goldMinter.write.updateRedeemSpread([100], { account: buyer.account }),
                 goldMinter,
-                'OwnableUnauthorizedAccount',
-                [getAddress(buyer.account.address)],
+                'AccessControlUnauthorizedAccount',
+                [getAddress(buyer.account.address), PARAMETER_MANAGER_ROLE],
             );
         });
 
@@ -1491,21 +1510,22 @@ describe('GoldMinter', function () {
             );
         });
 
-        it('should revert when non-owner tries to update fees', async function () {
+        it('should revert when non-authorized account tries to update fees', async function () {
             const { buyer, goldMinter, viem } = await fixture();
 
+            const PARAMETER_MANAGER_ROLE = await goldMinter.read.PARAMETER_MANAGER_ROLE();
             await viem.assertions.revertWithCustomErrorWithArgs(
                 goldMinter.write.updateMintFee([50], { account: buyer.account }),
                 goldMinter,
-                'OwnableUnauthorizedAccount',
-                [getAddress(buyer.account.address)],
+                'AccessControlUnauthorizedAccount',
+                [getAddress(buyer.account.address), PARAMETER_MANAGER_ROLE],
             );
 
             await viem.assertions.revertWithCustomErrorWithArgs(
                 goldMinter.write.updateRedeemFee([50], { account: buyer.account }),
                 goldMinter,
-                'OwnableUnauthorizedAccount',
-                [getAddress(buyer.account.address)],
+                'AccessControlUnauthorizedAccount',
+                [getAddress(buyer.account.address), PARAMETER_MANAGER_ROLE],
             );
         });
 

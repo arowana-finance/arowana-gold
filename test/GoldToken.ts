@@ -1,11 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from 'chai';
-import { parseEther, zeroAddress, getAddress, maxUint256, encodeFunctionData } from 'viem';
+import { parseEther, zeroAddress, getAddress, maxUint256, encodeFunctionData, keccak256, toHex } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const TOKEN_NAME = 'Arowana Gold Token';
 const TOKEN_SYMBOL = 'AGT';
 const TOKEN_DECIMALS = 18;
+
+// AccessControl role constants
+const DEFAULT_ADMIN_ROLE = '0x0000000000000000000000000000000000000000000000000000000000000000';
+const MINTER_ROLE = keccak256(toHex('MINTER_ROLE'));
 
 describe('GoldToken', function () {
     const fixture = async () => {
@@ -64,7 +68,7 @@ describe('GoldToken', function () {
             expect(await goldToken.read.symbol()).to.equal(TOKEN_SYMBOL);
             expect(await goldToken.read.decimals()).to.equal(TOKEN_DECIMALS);
             expect(await goldToken.read.totalSupply()).to.equal(0n);
-            expect(await goldToken.read.owner()).to.equal(getAddress(owner.account.address));
+            expect(await goldToken.read.hasRole([DEFAULT_ADMIN_ROLE, owner.account.address])).to.equal(true);
         });
 
         it('Should set blacklist oracle correctly', async function () {
@@ -72,10 +76,11 @@ describe('GoldToken', function () {
             expect(await goldToken.read.blacklistOracle()).to.equal(getAddress(blacklistOracle.address));
         });
 
-        it('Should add deployer as initial minter', async function () {
+        it('Should not add deployer as initial minter', async function () {
             const { owner, goldToken } = await fixture();
             const minters = await goldToken.read.minters();
-            expect(minters).to.include(getAddress(owner.account.address));
+            expect(minters).to.not.include(getAddress(owner.account.address));
+            expect(minters.length).to.equal(0);
         });
     });
 
@@ -98,14 +103,17 @@ describe('GoldToken', function () {
             expect(events[events.length - 1].args.newMinter).to.equal(getAddress(user1.account.address));
         });
 
-        it('Should not allow duplicate minters', async function () {
-            const { owner, goldToken, viem } = await fixture();
+        it('Should handle duplicate minters gracefully', async function () {
+            const { owner, goldToken } = await fixture();
 
-            await viem.assertions.revertWithCustomError(
-                goldToken.write.addMinter([owner.account.address]),
-                goldToken,
-                'DuplicateMinter',
-            );
+            // AccessControl allows granting role to existing member (no-op)
+            // Should not revert, just emit event
+            await goldToken.write.addMinter([owner.account.address]);
+
+            const minters = await goldToken.read.minters();
+            // Should still have only one entry for owner
+            const ownerCount = minters.filter((m: string) => getAddress(m) === getAddress(owner.account.address)).length;
+            expect(ownerCount).to.equal(1);
         });
 
         it('Should allow owner to remove minters', async function () {
@@ -128,29 +136,30 @@ describe('GoldToken', function () {
             expect(events[events.length - 1].args.oldMinter).to.equal(getAddress(user1.account.address));
         });
 
-        it('Should not allow removing non-existent minters', async function () {
-            const { user1, goldToken, viem } = await fixture();
+        it('Should handle removing non-existent minters gracefully', async function () {
+            const { user1, goldToken } = await fixture();
 
-            await viem.assertions.revertWithCustomError(
-                goldToken.write.removeMinter([user1.account.address]),
-                goldToken,
-                'InvalidMinter',
-            );
+            // AccessControl allows revoking role from non-member (no-op)
+            // Should not revert
+            await goldToken.write.removeMinter([user1.account.address]);
+
+            const minters = await goldToken.read.minters();
+            expect(minters).to.not.include(getAddress(user1.account.address));
         });
 
-        it('Should only allow owner to manage minters', async function () {
+        it('Should only allow admin to manage minters', async function () {
             const { owner, user1, user2, goldToken, viem } = await fixture();
 
             await viem.assertions.revertWithCustomError(
                 goldToken.write.addMinter([user2.account.address], { account: user1.account }),
                 goldToken,
-                'OwnableUnauthorizedAccount',
+                'AccessControlUnauthorizedAccount',
             );
 
             await viem.assertions.revertWithCustomError(
                 goldToken.write.removeMinter([owner.account.address], { account: user1.account }),
                 goldToken,
-                'OwnableUnauthorizedAccount',
+                'AccessControlUnauthorizedAccount',
             );
         });
     });
@@ -158,6 +167,8 @@ describe('GoldToken', function () {
     describe('Minting Functionality', async function () {
         const { owner, user1, user2, goldToken, viem } = await fixture();
 
+        // Add owner and user1 as minters for testing
+        await goldToken.write.addMinter([owner.account.address]);
         await goldToken.write.addMinter([user1.account.address]);
 
         it('Should allow minters to mint tokens', async function () {
@@ -179,7 +190,7 @@ describe('GoldToken', function () {
             await viem.assertions.revertWithCustomError(
                 goldToken.write.mint([user2.account.address, parseEther('100')], { account: user2.account }),
                 goldToken,
-                'FORBIDDEN',
+                'AccessControlUnauthorizedAccount',
             );
         });
 
@@ -193,6 +204,9 @@ describe('GoldToken', function () {
 
     describe('Blacklist Integration', async function () {
         const { owner, user1, user2, user3, goldToken, blacklistOracle, viem } = await fixture();
+
+        // Add owner as minter for testing
+        await goldToken.write.addMinter([owner.account.address]);
 
         await goldToken.write.mint([user1.account.address, parseEther('100')], {
             account: owner.account,
@@ -239,6 +253,7 @@ describe('GoldToken', function () {
             // Deploy new token without blacklist oracle
             const newToken = await viem.deployContract('GoldToken');
             await newToken.write.initializeGoldToken([owner.account.address, zeroAddress]);
+            await newToken.write.addMinter([owner.account.address]);
 
             await newToken.write.mint([user1.account.address, parseEther('100')], { account: owner.account });
 
@@ -296,13 +311,13 @@ describe('GoldToken', function () {
             );
         });
 
-        it('Should only allow owner to change blacklist oracle', async function () {
+        it('Should only allow admin to change blacklist oracle', async function () {
             const { owner, user1, goldToken, viem } = await fixture();
 
             await viem.assertions.revertWithCustomError(
                 goldToken.write.changeBlacklistOracle([owner.account.address], { account: user1.account }),
                 goldToken,
-                'OwnableUnauthorizedAccount',
+                'AccessControlUnauthorizedAccount',
             );
         });
 
@@ -316,6 +331,10 @@ describe('GoldToken', function () {
 
     describe('ERC20 Standard Functions', async function () {
         const { owner, user1, user2, user3, goldToken } = await fixture();
+
+        // Add owner as minter for testing
+        await goldToken.write.addMinter([owner.account.address]);
+
         await goldToken.write.mint([user1.account.address, parseEther('1000')], {
             account: owner.account,
         });
@@ -389,6 +408,9 @@ describe('GoldToken', function () {
 
     describe('ERC20 Permit (ERC-2612)', async function () {
         const { owner, user1, user2, goldToken } = await fixture();
+
+        // Add owner as minter for testing
+        await goldToken.write.addMinter([owner.account.address]);
 
         await goldToken.write.mint([user1.account.address, parseEther('1000')], {
             account: owner.account,
@@ -467,6 +489,7 @@ describe('GoldToken', function () {
         it('Should handle zero amount transfers', async function () {
             const { owner, user1, user2, goldToken } = await fixture();
 
+            await goldToken.write.addMinter([owner.account.address]);
             await goldToken.write.mint([user1.account.address, parseEther('100')], {
                 account: owner.account,
             });
@@ -480,6 +503,7 @@ describe('GoldToken', function () {
         it('Should handle self-transfers', async function () {
             const { owner, user1, goldToken } = await fixture();
 
+            await goldToken.write.addMinter([owner.account.address]);
             const amount = parseEther('100');
             await goldToken.write.mint([user1.account.address, amount], { account: owner.account });
 
@@ -493,6 +517,7 @@ describe('GoldToken', function () {
         it('Should prevent transfers exceeding balance', async function () {
             const { owner, user1, user2, goldToken, viem } = await fixture();
 
+            await goldToken.write.addMinter([owner.account.address]);
             await goldToken.write.mint([user1.account.address, parseEther('100')], {
                 account: owner.account,
             });
@@ -509,6 +534,7 @@ describe('GoldToken', function () {
         it('Should prevent unauthorized transfers', async function () {
             const { owner, user1, user2, user3, goldToken, viem } = await fixture();
 
+            await goldToken.write.addMinter([owner.account.address]);
             await goldToken.write.mint([user1.account.address, parseEther('100')], {
                 account: owner.account,
             });
@@ -530,6 +556,7 @@ describe('GoldToken', function () {
             const mintAmount2 = parseEther('200');
             const burnAmount = parseEther('50');
 
+            await goldToken.write.addMinter([owner.account.address]);
             await goldToken.write.mint([user1.account.address, mintAmount1], { account: owner.account });
             await goldToken.write.mint([user2.account.address, mintAmount2], { account: owner.account });
 

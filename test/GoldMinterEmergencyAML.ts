@@ -128,6 +128,17 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
         const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
+        // Grant all roles to owner for testing
+        const SETTLER_ROLE = await goldMinter.read.SETTLER_ROLE();
+        const PARAMETER_MANAGER_ROLE = await goldMinter.read.PARAMETER_MANAGER_ROLE();
+        const INFRA_MANAGER_ROLE = await goldMinter.read.INFRA_MANAGER_ROLE();
+        const KYC_MANAGER_ROLE = await goldMinter.read.KYC_MANAGER_ROLE();
+
+        await goldMinter.write.grantRole([SETTLER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([PARAMETER_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], { account: owner.account });
+
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,
         });
@@ -269,28 +280,23 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             expect(goldBalance).to.not.equal(0n);
         });
 
-        it('should only allow owner to pause/unpause', async function () {
+        it('should only allow admin to pause/unpause', async function () {
             const { buyer, goldMinter, viem } = await fixture();
 
-            await viem.assertions.revertWithCustomErrorWithArgs(
-                goldMinter.write.emergencyPause([], { account: buyer.account }),
-                goldMinter,
-                'OwnableUnauthorizedAccount',
-                [getAddress(buyer.account.address)],
-            );
+            const DEFAULT_ADMIN_ROLE = await goldMinter.read.DEFAULT_ADMIN_ROLE();
 
             await viem.assertions.revertWithCustomErrorWithArgs(
                 goldMinter.write.emergencyPause([], { account: buyer.account }),
                 goldMinter,
-                'OwnableUnauthorizedAccount',
-                [getAddress(buyer.account.address)],
+                'AccessControlUnauthorizedAccount',
+                [getAddress(buyer.account.address), DEFAULT_ADMIN_ROLE],
             );
 
             await viem.assertions.revertWithCustomErrorWithArgs(
                 goldMinter.write.emergencyUnpause([], { account: buyer.account }),
                 goldMinter,
-                'OwnableUnauthorizedAccount',
-                [getAddress(buyer.account.address)],
+                'AccessControlUnauthorizedAccount',
+                [getAddress(buyer.account.address), DEFAULT_ADMIN_ROLE],
             );
         });
     });
@@ -464,15 +470,18 @@ describe('GoldMinter - Emergency Pause & AML', function () {
             );
         });
 
-        it('should only allow settlers to manage AML blacklist', async function () {
+        it('should only allow KYC managers to manage AML blacklist', async function () {
             const { buyer, goldMinter, viem } = await fixture();
 
-            await viem.assertions.revertWithCustomError(
+            const KYC_MANAGER_ROLE = await goldMinter.read.KYC_MANAGER_ROLE();
+
+            await viem.assertions.revertWithCustomErrorWithArgs(
                 goldMinter.write.setAMLBlacklist([buyer.account.address, true], {
                     account: buyer.account,
                 }),
                 goldMinter,
-                'NotSettler',
+                'AccessControlUnauthorizedAccount',
+                [getAddress(buyer.account.address), KYC_MANAGER_ROLE],
             );
         });
     });

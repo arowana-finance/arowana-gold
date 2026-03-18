@@ -5,15 +5,15 @@ import { SafeERC20 } from '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { ReentrancyGuardUpgradeable } from '@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol';
 import { PausableUpgradeable } from '@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol';
 import { EIP712Upgradeable } from '@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol';
+import { AccessControlUpgradeable } from '@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol';
 import { ECDSA } from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 import { IERC20Exp, IERC20Mintable } from './interfaces/IERC20.sol';
 import { IPriceFeed } from './interfaces/IPriceFeed.sol';
 import { IGoldMinter } from './interfaces/IGoldMinter.sol';
-import { WithSettler } from './libraries/WithSettler.sol';
 import { SigLib } from './libraries/SigLib.sol';
 import { Errors } from './libraries/Errors.sol';
 
-contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradeable, EIP712Upgradeable {
+contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable, EIP712Upgradeable {
     using SigLib for bytes;
     using SafeERC20 for IERC20Exp;
     using SafeERC20 for IERC20Mintable;
@@ -23,6 +23,24 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
     // Unit conversion constants for ounce to gram conversion (8 decimals matches Oracle precision)
     uint256 public constant GRAMS_PER_OUNCE = 3110347680; // 31.1034768 * 1e8 (8 decimal precision)
     uint256 public constant CONVERSION_PRECISION = 1e8;
+
+    // ============ Role Constants ============
+
+    /// @notice SETTLER_ROLE - order settlement execution authority (settleMint, settleBurn)
+	/// keccak256("SETTLER_ROLE")
+    bytes32 public constant SETTLER_ROLE = 0x6666bf5bfee463d10a7fc50448047f8a53b7762d7e28fbc5c643182785f3fd3f;
+
+    /// @notice PARAMETER_MANAGER_ROLE - transaction parameter management authority
+	/// keccak256("PARAMETER_MANAGER_ROLE")
+    bytes32 public constant PARAMETER_MANAGER_ROLE = 0xf7e61c4e74c42df4eeae815b78ea28052584091f2e136a00ad566b99fd705839;
+
+    /// @notice INFRA_MANAGER_ROLE - oracle/Infrastructure Configuration Permissions
+	/// keccak256("INFRA_MANAGER_ROLE")
+    bytes32 public constant INFRA_MANAGER_ROLE = 0x38e3514d14a43b32346641d4cce38d023dcec3c7e11e9c363aa96dd6981420ee;
+
+    /// @notice KYC_MANAGER_ROLE - KYC/AML management authority
+	/// keccak256("KYC_MANAGER_ROLE")
+    bytes32 public constant KYC_MANAGER_ROLE = 0x6f35daacd116f0f629c42d5459fd6842d505964e6828899d889573dc5bc51cf8;
 
     // EIP-712 type hashes
     bytes32 public constant KYC_MINT_REQUEST_TYPEHASH =
@@ -187,7 +205,11 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         __ReentrancyGuard_init();
         __Pausable_init();
         __EIP712_init('GoldMinter', '1');
-        _initializeSettler(_owner);
+        __AccessControl_init();
+
+        // Grant admin role (admin can grant other roles after deployment)
+        _grantRole(DEFAULT_ADMIN_ROLE, _owner);
+
         _emitInitialize();
     }
 
@@ -265,28 +287,28 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         requestBurn(_usdToken, _goldAmount, _minUsdAmount);
     }
 
-    function setLevel(address user, IGoldMinter.Levels level) external onlySettlers {
+    function setLevel(address user, IGoldMinter.Levels level) external onlyRole(KYC_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.levels[user] = uint8(level);
 		$.kycNonces[user]++;
         emit UpdateLevel(user, level);
     }
 
-    function updateSlippage(uint16 _slippage) external onlyOwner {
+    function updateSlippage(uint16 _slippage) external onlyRole(PARAMETER_MANAGER_ROLE) {
         if (_slippage > 500) revert Errors.Overflow();
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.slippage = _slippage;
         emit UpdateSlippage(_slippage);
     }
 
-    function updatePriceFeed(address _goldPriceFeed) external onlyOwner {
+    function updatePriceFeed(address _goldPriceFeed) external onlyRole(INFRA_MANAGER_ROLE) {
         if (_goldPriceFeed == address(0)) revert Errors.ZeroPriceFeed();
 		GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.goldPriceFeed = IPriceFeed(_goldPriceFeed);
         emit UpdatePriceFeed(_goldPriceFeed);
     }
 
-    function updateMaxPriceAge(uint256 _age) external onlyOwner {
+    function updateMaxPriceAge(uint256 _age) external onlyRole(INFRA_MANAGER_ROLE) {
         if (_age < 5 minutes || _age > 30 minutes) revert Errors.InvalidPriceAge();
 
         GoldMinterStorage storage $ = _getGoldMinterStorage();
@@ -294,83 +316,83 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         emit UpdateMaxPriceAge(_age);
     }
 
-    function updateMintSpread(uint16 _mintSpread) external onlyOwner {
+    function updateMintSpread(uint16 _mintSpread) external onlyRole(PARAMETER_MANAGER_ROLE) {
         if (_mintSpread > 300) revert Errors.Overflow(); // Max 3%
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.mintSpread = _mintSpread;
         emit UpdateMintSpread(_mintSpread);
     }
 
-    function updateRedeemSpread(uint16 _redeemSpread) external onlyOwner {
+    function updateRedeemSpread(uint16 _redeemSpread) external onlyRole(PARAMETER_MANAGER_ROLE) {
         if (_redeemSpread > 300) revert Errors.Overflow(); // Max 3%
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.redeemSpread = _redeemSpread;
         emit UpdateRedeemSpread(_redeemSpread);
     }
 
-    function updateMintFee(uint16 _mintFee) external onlyOwner {
+    function updateMintFee(uint16 _mintFee) external onlyRole(PARAMETER_MANAGER_ROLE) {
         if (_mintFee > 100) revert Errors.Overflow(); // Max 1%
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.mintFee = _mintFee;
         emit UpdateMintFee(_mintFee);
     }
 
-    function updateRedeemFee(uint16 _redeemFee) external onlyOwner {
+    function updateRedeemFee(uint16 _redeemFee) external onlyRole(PARAMETER_MANAGER_ROLE) {
         if (_redeemFee > 100) revert Errors.Overflow(); // Max 1%
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.redeemFee = _redeemFee;
         emit UpdateRedeemFee(_redeemFee);
     }
 
-    function updateMinGold(uint256 _minGold) external onlyOwner {
+    function updateMinGold(uint256 _minGold) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.minGoldAmount = _minGold;
         emit UpdateMinGold(_minGold);
     }
 
-    function updateMinGoldFee(uint256 _minGoldFee) external onlyOwner {
+    function updateMinGoldFee(uint256 _minGoldFee) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.minGoldFee = _minGoldFee;
         emit UpdateMinGoldFee(_minGoldFee);
     }
 
-    function updateMinGoldFeeAmount(uint256 _minGoldFeeAmount) external onlyOwner {
+    function updateMinGoldFeeAmount(uint256 _minGoldFeeAmount) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.minGoldFeeAmount = _minGoldFeeAmount;
         emit UpdateMinGoldFeeAmount(_minGoldFeeAmount);
     }
 
-    function updateAutoSettle() external onlyOwner {
+    function updateAutoSettle() external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.autoSettle = !$.autoSettle;
         emit UpdateAutoSettle($.autoSettle);
     }
 
-    function updateTradingLevel(IGoldMinter.Levels level) external onlyOwner {
+    function updateTradingLevel(IGoldMinter.Levels level) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.tradeLevel = level;
         emit UpdateTradingLevel(level);
     }
 
-    function updateRecipient(address _usdRecipient) external onlyOwner {
+    function updateRecipient(address _usdRecipient) external onlyRole(INFRA_MANAGER_ROLE) {
         if (_usdRecipient == address(0)) revert Errors.ZeroUSDRecipient();
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.usdRecipient = _usdRecipient;
         emit UpdateRecipient(_usdRecipient);
     }
 
-    function setAMLBlacklist(address user, bool blacklisted) external onlySettlers {
+    function setAMLBlacklist(address user, bool blacklisted) external onlyRole(KYC_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.amlBlacklist[user] = blacklisted;
         emit AMLBlacklisted(user, blacklisted);
     }
 
-    function emergencyPause() external onlyOwner {
+    function emergencyPause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
         emit EmergencyPaused(msg.sender, true);
     }
 
-    function emergencyUnpause() external onlyOwner {
+    function emergencyUnpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
         emit EmergencyPaused(msg.sender, false);
     }
@@ -502,7 +524,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
 
     // ============ Public Functions ============
 
-    function settleMint(uint256 mintNonce) public onlyOwner {
+    function settleMint(uint256 mintNonce) public onlyRole(SETTLER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         if (mintNonce >= $.mintOrders.length) revert Errors.InvalidNonce();
 
@@ -511,7 +533,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         _settleMint(mintNonce, goldAmount);
     }
 
-    function settleBurn(uint256 burnNonce) public onlyOwner {
+    function settleBurn(uint256 burnNonce) public onlyRole(SETTLER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         if (burnNonce >= $.burnOrders.length) revert Errors.InvalidNonce();
 
@@ -1011,7 +1033,7 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(hash, signature);
 
-        return isSettler(signer);
+        return hasRole(KYC_MANAGER_ROLE, signer);
     }
 
     function _verifyKYCBurnSignature(
@@ -1039,8 +1061,8 @@ contract GoldMinter is WithSettler, ReentrancyGuardUpgradeable, PausableUpgradea
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(hash, signature);
 
-        return isSettler(signer);
-    }   
+        return hasRole(KYC_MANAGER_ROLE, signer);
+    }
 
     // ============ Private Functions ============
 
