@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { EnumerableSet } from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
+import { AccessControlEnumerableUpgradeable } from '@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol';
 import { IBlacklistOracle } from '../interfaces/IBlacklistOracle.sol';
-import { Ownable } from '../libraries/Ownable.sol';
 import { InitializableERC20 } from './InitializableERC20.sol';
 
-/// @title Arowana Gold Token
 /// @notice ERC20 pegged with gold reserves
 /// @dev Uses standard OpenZeppelin ERC20 implementation
-contract GoldToken is InitializableERC20, Ownable {
-    using EnumerableSet for EnumerableSet.AddressSet;
+contract GoldToken is InitializableERC20, AccessControlEnumerableUpgradeable {
 
 	// ============ Constants ============
+
+	/// @notice MINTER_ROLE - token minting authority
+	/// keccak256("MINTER_ROLE")
+	bytes32 public constant MINTER_ROLE = 0x9f2df0fed2c77648de5860a4cc508cd0818c85b8b8a1ab4ceeef8d981c8956a6;
 
 	// keccak256(abi.encode(uint256(keccak256("arowana.storage.GoldToken")) - 1)) & ~bytes32(uint256(0xff))
 	bytes32 private constant GoldTokenStorageLocation =
@@ -23,7 +24,6 @@ contract GoldToken is InitializableERC20, Ownable {
     /// @custom:storage-location erc7201:arowana.storage.GoldToken
 	struct GoldTokenStorage {
 		IBlacklistOracle blacklistOracle;
-		EnumerableSet.AddressSet _minters;
 	}
 
 	// ============ Events ============
@@ -35,17 +35,8 @@ contract GoldToken is InitializableERC20, Ownable {
 	// ============ Errors ============
 
     error BlacklistedAddress(address[] addrs);
-	error ForbiddenAddress();
-	error DuplicateMinter();
-	error InvalidMinter();
-
-	// ============ Modifiers ============
-
-	modifier onlyMinter() {
-		GoldTokenStorage storage $ = _getGoldTokenStorage();
-		if (!$._minters.contains(_msgSender())) revert ForbiddenAddress();
-        _;
-    }
+	error AlreadyMinter(address minter);
+    error NotMinter(address minter);
 
 	// ============ Constructor ============
 
@@ -58,43 +49,46 @@ contract GoldToken is InitializableERC20, Ownable {
 
     function initializeGoldToken(address _initOwner, address _blacklistOracle) public initializer {
         initializeToken('Arowana Gold Token', 'AGT', 18, 0);
+		__AccessControl_init();
 
 		GoldTokenStorage storage $ = _getGoldTokenStorage();
-
-        $._minters.add(_initOwner);
-		emit AddMinter(_initOwner);
 
         if (_blacklistOracle != address(0)) {
             $.blacklistOracle = IBlacklistOracle(_blacklistOracle);
 			emit BlacklistOracleChanged(_blacklistOracle);
         }
-        _transferOwnership(_initOwner);
+
+		_grantRole(DEFAULT_ADMIN_ROLE, _initOwner);
     }
 
 	// ============ External Functions ============
 
-    function addMinter(address _minter) external onlyOwner {
-		GoldTokenStorage storage $ = _getGoldTokenStorage();
-		if ($._minters.contains(_minter)) revert DuplicateMinter();
-		$._minters.add(_minter);
+    function addMinter(address _minter) external onlyRole(DEFAULT_ADMIN_ROLE) {
+		if (hasRole(MINTER_ROLE, _minter)) revert AlreadyMinter(_minter);
+
+		_grantRole(MINTER_ROLE, _minter);
 		emit AddMinter(_minter);
 	}
 
-    function removeMinter(address _minter) external onlyOwner {
-		GoldTokenStorage storage $ = _getGoldTokenStorage();
-		if(!$._minters.contains(_minter)) revert InvalidMinter();
-		$._minters.remove(_minter);
+    function removeMinter(address _minter) external onlyRole(DEFAULT_ADMIN_ROLE) {
+		if (!hasRole(MINTER_ROLE, _minter)) revert NotMinter(_minter);
+
+		_revokeRole(MINTER_ROLE, _minter);
 		emit RemoveMinter(_minter);
 	}
 
 	function minters() external view returns (address[] memory) {
-		GoldTokenStorage storage $ = _getGoldTokenStorage();
-		return $._minters.values();
+		uint256 count = getRoleMemberCount(MINTER_ROLE);
+		address[] memory result = new address[](count);
+		for (uint256 i = 0; i < count; i++) {
+			result[i] = getRoleMember(MINTER_ROLE, i);
+		}
+		return result;
 	}
 
 	// ============ Public Functions ============
 
-	function mint(address to, uint256 amount) public onlyMinter {
+	function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
         _mint(to, amount);
     }
 
@@ -121,7 +115,7 @@ contract GoldToken is InitializableERC20, Ownable {
 		_burn(account, value);
 	}
 
-	function changeBlacklistOracle(address _blacklistOracle) public virtual onlyOwner {
+	function changeBlacklistOracle(address _blacklistOracle) public virtual onlyRole(DEFAULT_ADMIN_ROLE) {
 		GoldTokenStorage storage $ = _getGoldTokenStorage();
 		$.blacklistOracle = IBlacklistOracle(_blacklistOracle);
 		emit BlacklistOracleChanged(_blacklistOracle);

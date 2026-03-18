@@ -127,6 +127,17 @@ describe('GoldMinter - Upgrade Tests', function () {
 
         const goldMinter = await viem.getContractAt('GoldMinter', goldMinterProxy.address);
 
+        // Grant all roles to owner for testing
+        const SETTLER_ROLE = await goldMinter.read.SETTLER_ROLE();
+        const PARAMETER_MANAGER_ROLE = await goldMinter.read.PARAMETER_MANAGER_ROLE();
+        const INFRA_MANAGER_ROLE = await goldMinter.read.INFRA_MANAGER_ROLE();
+        const KYC_MANAGER_ROLE = await goldMinter.read.KYC_MANAGER_ROLE();
+
+        await goldMinter.write.grantRole([SETTLER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([PARAMETER_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], { account: owner.account });
+
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,
         });
