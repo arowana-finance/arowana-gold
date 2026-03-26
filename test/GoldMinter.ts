@@ -136,9 +136,15 @@ describe('GoldMinter', function () {
         const KYC_MANAGER_ROLE = await goldMinter.read.KYC_MANAGER_ROLE();
 
         await goldMinter.write.grantRole([SETTLER_ROLE, owner.account.address], { account: owner.account });
-        await goldMinter.write.grantRole([PARAMETER_MANAGER_ROLE, owner.account.address], { account: owner.account });
-        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], { account: owner.account });
-        await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([PARAMETER_MANAGER_ROLE, owner.account.address], {
+            account: owner.account,
+        });
+        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], {
+            account: owner.account,
+        });
+        await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], {
+            account: owner.account,
+        });
 
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,
@@ -270,13 +276,11 @@ describe('GoldMinter', function () {
             account: owner.account,
         });
 
-        const feeBps = await goldMinter.read.mintFee();
-        const amountExFee = (expectedAGT * (10000n - BigInt(String(feeBps)))) / 10000n;
+        // New fee calculation: goldAmount × (1 + spread%) × fee%
+        const actualBalance = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+        const expectedNetAGT = expectedAGT - expectedFee;
 
-        expect(Number(await goldToken.read.balanceOf([buyer.account.address]))).to.be.closeTo(
-            Number(amountExFee),
-            1000,
-        );
+        expect(Number(actualBalance)).to.be.closeTo(Number(expectedNetAGT), 1000);
     });
 
     it('requestBurn', async function () {
@@ -377,11 +381,14 @@ describe('GoldMinter', function () {
         expect(Number(actualFeeReceived)).to.be.closeTo(Number(expectedFee), 10); // Allow small tolerance
         expect(Number(actualAGTReceived)).to.be.closeTo(Number(expectedAGTAfterFee), 1000); // Allow 1000 wei tolerance for rounding
 
-        // Verify this is using percentage fee (0.25%)
+        // Verify this is using percentage fee: goldAmount × fee% (simplified formula)
         if (expectedAGT >= BigInt(1e18)) {
-            const expectedPercentageFee = (Number(expectedAGT) * 25) / 10000; // 0.25%
+            const mintFee = Number(await goldMinter.read.mintFee());
+            const expectedPercentageFee = (Number(expectedAGT) * mintFee) / 10000;
             expect(Number(expectedFee)).to.be.closeTo(expectedPercentageFee, 1e15); // Allow 0.001 ether tolerance
-            console.log(`Percentage fee (0.25%) correctly applied: ${Number(expectedFee) / 1e18} ether`);
+            console.log(
+                `Percentage fee (${mintFee / 100}%) correctly applied: ${Number(expectedFee) / 1e18} ether`,
+            );
         }
 
         // Now test burn flow - use actual balance from contract (bigint)
@@ -393,9 +400,10 @@ describe('GoldMinter', function () {
             burnAmount - burnFee,
         ])) as bigint;
 
-        // Verify burn fee calculation
+        // Verify burn fee calculation: goldAmount × fee% (simplified formula)
         if (burnAmount >= BigInt(1e18)) {
-            const expectedBurnPercentageFee = (Number(burnAmount) * 25) / 10000; // 0.25%
+            const redeemFee = Number(await goldMinter.read.redeemFee());
+            const expectedBurnPercentageFee = (Number(burnAmount) * redeemFee) / 10000;
             expect(Number(burnFee)).to.be.closeTo(expectedBurnPercentageFee, 1000); // Allow 1000 wei tolerance
         } else {
             // Fixed fee should be applied (0.01 ether)
@@ -555,7 +563,6 @@ describe('GoldMinter', function () {
                 // Buyer should have same or more USDT (refunded)
                 // Buyer should have 0 AGT (not minted)
                 expect(Number(finalBuyerAGT)).to.equal(Number(initialBuyerAGT));
-                console.log(`\n✅ TEST PASSED: Exact 1g USD correctly triggers refund due to fee`);
             }
         });
 
@@ -615,41 +622,36 @@ describe('GoldMinter', function () {
             // Should have received AGT >= 1g
             expect(actualAGTReceived).to.be.greaterThanOrEqual(Number(parseEther('1')));
             expect(actualAGTReceived).to.be.closeTo(Number(netAGT), 1000);
-
-            console.log(
-                `\n✅ TEST PASSED: 1g + 1.5% buffer successfully minted ${actualAGTReceived / 1e18} AGT`,
-            );
         });
 
-        it('should calculate exact minimum USD required to mint 1g after spread and fee', async function () {
+        it('should calculate exact minimum USD required to mint 1g (gross) after spread', async function () {
             const { owner, buyer, goldToken, USDT, goldPriceFeed, goldMinter } = await fixture();
 
             await goldMinter.write.updateAutoSettle();
             await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
 
             const goldPrice = await goldPriceFeed.read.latestAnswer();
-            const mintSpread = 75n; // 0.75% = 75 bps
-            const feeRate = 25n; // 0.25% = 25 bps
+            const mintSpreadRaw = await goldMinter.read.mintSpread();
+            const mintSpread = BigInt(Number(mintSpreadRaw));
+            const mintFeeRaw = await goldMinter.read.mintFee();
+            const mintFee = BigInt(Number(mintFeeRaw));
 
-            console.log(`\n=== EXACT MINIMUM CALCULATION (with spread) ===`);
+            console.log(`\n=== EXACT MINIMUM CALCULATION (gross >= 1g) ===`);
             console.log(`Gold price: $${Number(goldPrice) / 1e8} per ounce`);
             console.log(`1g base price: $${Number(GOLD_PRICE_IN_USD_TOKEN) / 1e6} USD`);
             console.log(`Mint spread: ${Number(mintSpread) / 100}%`);
-            console.log(`Fee rate: ${Number(feeRate) / 100}%`);
+            console.log(`Fee rate: ${Number(mintFee) / 100}%`);
 
-            // To receive exactly 1g after spread and fee:
-            // grossAGT = USD / (price * 1.0075)  [spread applied]
-            // netAGT = grossAGT * 0.9975  [fee applied]
-            // 1g = (USD / (price * 1.0075)) * 0.9975
-            // USD = 1g * price * 1.0075 / 0.9975
-            // USD = 1g_price * 1.0075 / 0.9975 = 1g_price * 10075 / 9975
+            // New validation: gross >= 1g (not net >= 1g)
+            // grossAGT = USD / (price * (1 + spread%))
+            // To get grossAGT >= 1g:
+            // USD >= 1g * price * (1 + spread%)
+            // USD >= 1g_price * (10000 + spread) / 10000
 
-            // Calculate minimum USD needed (ceiling division to ensure we round up)
-            const numerator = 10000n + mintSpread; // 10075
-            const denominator = 10000n - feeRate; // 9975
-            const minUSDRequired = (GOLD_PRICE_IN_USD_TOKEN * numerator + denominator - 1n) / denominator;
+            // Calculate minimum USD needed for gross >= 1g
+            const minUSDRequired = (GOLD_PRICE_IN_USD_TOKEN * (10000n + mintSpread) + 9999n) / 10000n;
 
-            console.log(`\nMinimum USD to get 1g after spread+fee: $${Number(minUSDRequired) / 1e6} USD`);
+            console.log(`\nMinimum USD to get gross 1g: $${Number(minUSDRequired) / 1e6} USD`);
             console.log(
                 `This is ${(Number(minUSDRequired) / Number(GOLD_PRICE_IN_USD_TOKEN) - 1) * 100}% more than 1g base price`,
             );
@@ -664,19 +666,21 @@ describe('GoldMinter', function () {
 
             console.log(`\nVerification:`);
             console.log(`  If deposit $${Number(minUSDRequired) / 1e6} USD:`);
-            console.log(`  Gross AGT: ${Number(expectedAGT) / 1e18} AGT`);
+            console.log(`  Gross AGT: ${Number(expectedAGT) / 1e18} AGT (must be >= 1g)`);
             console.log(`  Fee: ${Number(expectedFee) / 1e18} AGT`);
-            console.log(`  Net AGT: ${Number(netAGT) / 1e18} AGT`);
+            console.log(`  Net AGT: ${Number(netAGT) / 1e18} AGT (user receives, can be < 1g)`);
 
-            // Net should be >= 1g
-            expect(Number(netAGT)).to.be.greaterThanOrEqual(Number(parseEther('1')) - 1000); // Allow tiny rounding
+            // Gross should be >= 1g (new validation)
+            expect(Number(expectedAGT)).to.be.greaterThanOrEqual(Number(parseEther('1')) - 1000);
 
             // Now test actual minting
             await USDT.write.approve([goldMinter.address, minUSDRequired], { account: buyer.account });
 
             const initialBuyerAGT = await goldToken.read.balanceOf([buyer.account.address]);
 
-            await goldMinter.write.requestMint([USDT.address, minUSDRequired, parseEther('1')], {
+            // minGoldAmount is the slippage protection (user's minimum acceptable)
+            // It should be <= netAGT for the tx to succeed
+            await goldMinter.write.requestMint([USDT.address, minUSDRequired, netAGT], {
                 account: buyer.account,
             });
 
@@ -686,11 +690,8 @@ describe('GoldMinter', function () {
             console.log(`\nActual mint result:`);
             console.log(`  AGT received: ${actualAGTReceived / 1e18} AGT`);
 
-            expect(actualAGTReceived).to.be.greaterThanOrEqual(Number(parseEther('1')) - 1000);
-
-            console.log(
-                `\n✅ TEST PASSED: Exact minimum USD ($${Number(minUSDRequired) / 1e6}) successfully mints >= 1g`,
-            );
+            // User receives net amount (after fee)
+            expect(actualAGTReceived).to.be.closeTo(Number(netAGT), 1000);
 
             // Summary
             console.log(`\n=== SUMMARY ===`);
@@ -721,10 +722,10 @@ describe('GoldMinter', function () {
                 await goldMinter.write.requestMint([USDT.address, usdAmount, parseEther('0.99')], {
                     account: buyer.account,
                 });
-                console.log(`❌ TEST FAILED: Should have reverted for minGoldAmount < 1g`);
+                console.log(`TEST FAILED: Should have reverted for minGoldAmount < 1g`);
                 expect.fail('Should have reverted');
-            } catch (error) {
-                console.log(`✅ TEST PASSED: Correctly reverted for minGoldAmount < 1g`);
+            } catch {
+                console.log(`TEST PASSED: Correctly reverted for minGoldAmount < 1g`);
                 console.log(`Error: SmallAmount (minGoldAmount must be >= 1g)`);
             }
         });
@@ -1435,6 +1436,736 @@ describe('GoldMinter', function () {
         });
     });
 
+    describe('1 AGT Base Fee Calculation (Simplified)', function () {
+        it('should verify exact fee calculation for 1 AGT mint', async function () {
+            const { goldMinter } = await fixture();
+
+            const oneAGT = parseEther('1'); // 1 AGT = 1e18 wei
+
+            const mintFee = Number(await goldMinter.read.mintFee()); // 25 = 0.25%
+
+            console.log('\n' + '='.repeat(60));
+            console.log('1 AGT MINT FEE CALCULATION (SIMPLIFIED)');
+            console.log('='.repeat(60));
+
+            console.log(`\n[Parameters]`);
+            console.log(`  mintFee: ${mintFee} bps = ${mintFee / 100}%`);
+
+            console.log(`\n[Formula]`);
+            console.log(`  fee = goldAmount × fee / 10000`);
+            console.log(`      = 1 AGT × ${mintFee} / 10000`);
+            console.log(`      = ${mintFee / 10000} AGT`);
+
+            // Manual calculation in wei: simple 0.25%
+            const manualFee = (BigInt(oneAGT) * BigInt(mintFee)) / 10000n;
+            const contractFee = (await goldMinter.read.calculateGoldFee([oneAGT, true])) as bigint;
+
+            console.log(`\n[Result]`);
+            console.log(`  Manual: ${Number(manualFee) / 1e18} AGT (${manualFee} wei)`);
+            console.log(`  Contract: ${Number(contractFee) / 1e18} AGT (${contractFee} wei)`);
+
+            const effectiveRate = (Number(contractFee) / Number(oneAGT)) * 100;
+            console.log(`\n[Effective Fee Rate]`);
+            console.log(`  ${effectiveRate.toFixed(6)}%`);
+
+            expect(contractFee).to.equal(manualFee);
+        });
+
+        it('should verify exact fee calculation for 1 AGT redeem', async function () {
+            const { goldMinter } = await fixture();
+
+            const oneAGT = parseEther('1');
+
+            const redeemFee = Number(await goldMinter.read.redeemFee());
+
+            console.log('\n' + '='.repeat(60));
+            console.log('1 AGT REDEEM FEE CALCULATION (SIMPLIFIED)');
+            console.log('='.repeat(60));
+
+            console.log(`\n[Parameters]`);
+            console.log(`  redeemFee: ${redeemFee} bps = ${redeemFee / 100}%`);
+
+            console.log(`\n[Formula]`);
+            console.log(`  fee = goldAmount × fee / 10000`);
+            console.log(`      = 1 AGT × ${redeemFee} / 10000`);
+            console.log(`      = ${redeemFee / 10000} AGT`);
+
+            // Manual calculation in wei: simple 0.25%
+            const manualFee = (BigInt(oneAGT) * BigInt(redeemFee)) / 10000n;
+            const contractFee = (await goldMinter.read.calculateGoldFee([oneAGT, false])) as bigint;
+
+            console.log(`\n[Result]`);
+            console.log(`  Manual: ${Number(manualFee) / 1e18} AGT (${manualFee} wei)`);
+            console.log(`  Contract: ${Number(contractFee) / 1e18} AGT (${contractFee} wei)`);
+
+            expect(contractFee).to.equal(manualFee);
+            console.log('\n' + '='.repeat(60));
+        });
+
+        it('should verify 1 AGT mint flow with exact fee breakdown', async function () {
+            const { owner, buyer, USDT, goldToken, goldMinter, goldPriceFeed } = await fixture();
+
+            await goldMinter.write.updateAutoSettle();
+            await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
+
+            const goldPrice = Number(await goldPriceFeed.read.latestAnswer()) / 1e8;
+            const mintSpread = Number(await goldMinter.read.mintSpread());
+            const mintFee = Number(await goldMinter.read.mintFee());
+
+            console.log('\n' + '='.repeat(60));
+            console.log('1 AGT MINT FLOW TEST');
+            console.log('='.repeat(60));
+
+            console.log(`\n[Parameters]`);
+            console.log(`  Gold price: $${goldPrice}/oz = $${(goldPrice / 31.1034768).toFixed(2)}/g`);
+            console.log(`  mintSpread: ${mintSpread / 100}%, mintFee: ${mintFee / 100}%`);
+
+            // Calculate exact USD needed to get exactly 1 AGT gross
+            // GOLD_PRICE_IN_USD_TOKEN is already gram-based (1g = 1 AGT)
+            // Add spread: usdAmount = 1g price × (1 + spread%), round up to ensure >= 1g
+            const oneGramPrice = GOLD_PRICE_IN_USD_TOKEN;
+            const usdAmount = (oneGramPrice * BigInt(10000 + mintSpread) + 9999n) / 10000n;
+
+            console.log(`\n[Mint exactly 1 AGT]`);
+            console.log(`  1g base price: $${Number(oneGramPrice) / 1e6}`);
+            console.log(`  With ${mintSpread / 100}% spread: $${Number(usdAmount) / 1e6}`);
+
+            await USDT.write.approve([goldMinter.address, usdAmount], { account: buyer.account });
+
+            const grossAGT = (await goldMinter.read.getGoldAmount([USDT.address, usdAmount])) as bigint;
+            const mintFeeAmt = (await goldMinter.read.calculateGoldFee([grossAGT, true])) as bigint;
+            // Simplified formula: fee = goldAmount × fee / 10000
+            const expectedMintFee = (BigInt(grossAGT) * BigInt(mintFee)) / 10000n;
+            const netAGT = grossAGT - mintFeeAmt;
+
+            console.log(`  Gross AGT: ${Number(grossAGT) / 1e18} AGT`);
+            console.log(`  Mint fee calculation (simplified):`);
+            console.log(`    = ${Number(grossAGT) / 1e18} × ${mintFee} / 10000`);
+            console.log(`    = ${Number(expectedMintFee) / 1e18} AGT`);
+            console.log(`  Contract fee: ${Number(mintFeeAmt) / 1e18} AGT`);
+            console.log(`  Net AGT (user receives): ${Number(netAGT) / 1e18} AGT`);
+
+            expect(mintFeeAmt).to.equal(expectedMintFee);
+
+            // Execute mint
+            const initialBuyerAGT = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+            const initialOwnerAGT = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            await goldMinter.write.requestMint([USDT.address, usdAmount, netAGT], {
+                account: buyer.account,
+            });
+
+            const finalBuyerAGT = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+            const finalOwnerAGT = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            const buyerReceived = finalBuyerAGT - initialBuyerAGT;
+            const ownerReceived = finalOwnerAGT - initialOwnerAGT;
+
+            console.log(`\n[Result]`);
+            console.log(`  Buyer received: ${Number(buyerReceived) / 1e18} AGT`);
+            console.log(`  Owner (fee): ${Number(ownerReceived) / 1e18} AGT`);
+            console.log(`  Total minted: ${Number(buyerReceived + ownerReceived) / 1e18} AGT`);
+
+            expect(buyerReceived).to.equal(netAGT);
+            expect(ownerReceived).to.equal(mintFeeAmt);
+        });
+
+        it('should verify 1 AGT burn flow with exact fee breakdown', async function () {
+            const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
+
+            await goldMinter.write.updateAutoSettle();
+            await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
+
+            const mintSpread = Number(await goldMinter.read.mintSpread());
+            const mintFee = Number(await goldMinter.read.mintFee());
+            const redeemSpread = Number(await goldMinter.read.redeemSpread());
+            const redeemFee = Number(await goldMinter.read.redeemFee());
+
+            console.log('\n' + '='.repeat(60));
+            console.log('1 AGT BURN FLOW TEST (SIMPLIFIED FEE)');
+            console.log('='.repeat(60));
+
+            console.log(`\n[Parameters]`);
+            console.log(`  mintSpread: ${mintSpread / 100}%, mintFee: ${mintFee / 100}%`);
+            console.log(`  redeemSpread: ${redeemSpread / 100}%, redeemFee: ${redeemFee / 100}%`);
+
+            // Calculate gross AGT needed to get exactly 1 AGT net after mint fee
+            // netAGT = grossAGT - (grossAGT × fee / 10000)
+            // netAGT = grossAGT × (10000 - fee) / 10000
+            // grossAGT = netAGT × 10000 / (10000 - fee), round up
+            const oneAGT = parseEther('1');
+            const feeMultiplier = BigInt(mintFee); // 25 = 0.25%
+            const denominator = 10000n - feeMultiplier; // 9975
+            const grossAGT = (oneAGT * 10000n + denominator - 1n) / denominator; // ceiling
+
+            // Calculate USD needed for grossAGT (using gram-based price), round up + buffer
+            const oneGramPrice = GOLD_PRICE_IN_USD_TOKEN;
+            const divisor = parseEther('1') * 10000n;
+            // Add +1 to ensure we definitely get >= 1g net after rounding through getGoldAmount
+            const usdAmount =
+                (grossAGT * oneGramPrice * BigInt(10000 + mintSpread) + divisor - 1n) / divisor + 1n;
+
+            console.log(`\n[Setup: Mint to get exactly 1 AGT net]`);
+            console.log(`  Target net AGT: 1.0 AGT`);
+            console.log(`  Required gross AGT: ${Number(grossAGT) / 1e18} AGT`);
+            console.log(`  1g base price: $${Number(oneGramPrice) / 1e6}`);
+            console.log(`  USD needed (with spread): $${Number(usdAmount) / 1e6}`);
+
+            // Execute mint
+            await USDT.write.approve([goldMinter.address, usdAmount], { account: buyer.account });
+            const actualGrossAGT = (await goldMinter.read.getGoldAmount([USDT.address, usdAmount])) as bigint;
+            const mintFeeAmt = (await goldMinter.read.calculateGoldFee([actualGrossAGT, true])) as bigint;
+            const netMintAGT = actualGrossAGT - mintFeeAmt;
+
+            await goldMinter.write.requestMint([USDT.address, usdAmount, netMintAGT], {
+                account: buyer.account,
+            });
+
+            const buyerAGT = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+            console.log(`  Actual gross AGT: ${Number(actualGrossAGT) / 1e18} AGT`);
+            console.log(`  Mint fee: ${Number(mintFeeAmt) / 1e18} AGT`);
+            console.log(`  Buyer received: ${Number(buyerAGT) / 1e18} AGT`);
+
+            console.log(`\n[Burn 1 AGT]`);
+            const burnFeeAmt = (await goldMinter.read.calculateGoldFee([buyerAGT, false])) as bigint;
+            // Simplified formula: fee = goldAmount × fee / 10000
+            const expectedBurnFee = (BigInt(buyerAGT) * BigInt(redeemFee)) / 10000n;
+
+            const netGoldAfterFee = buyerAGT - burnFeeAmt;
+            const expectedUSD = (await goldMinter.read.getUsdAmount([
+                USDT.address,
+                netGoldAfterFee,
+            ])) as bigint;
+
+            console.log(`  Burn amount: ${Number(buyerAGT) / 1e18} AGT`);
+            console.log(`  Burn fee calculation (simplified):`);
+            console.log(`    = ${Number(buyerAGT) / 1e18} × ${redeemFee} / 10000`);
+            console.log(`    = ${Number(expectedBurnFee) / 1e18} AGT`);
+            console.log(`  Contract fee: ${Number(burnFeeAmt) / 1e18} AGT`);
+            console.log(`  Net gold after fee: ${Number(netGoldAfterFee) / 1e18} AGT`);
+            console.log(`  Expected USD (with spread): $${Number(expectedUSD) / 1e6}`);
+
+            expect(burnFeeAmt).to.equal(expectedBurnFee);
+
+            // Execute burn
+            await goldToken.write.approve([goldMinter.address, buyerAGT], { account: buyer.account });
+            await USDT.write.approve([goldMinter.address, expectedUSD], { account: owner.account });
+
+            const buyerUSDTBefore = (await USDT.read.balanceOf([buyer.account.address])) as bigint;
+            const ownerAGTBefore = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            await goldMinter.write.requestBurn([USDT.address, buyerAGT, expectedUSD], {
+                account: buyer.account,
+            });
+
+            const buyerUSDTAfter = (await USDT.read.balanceOf([buyer.account.address])) as bigint;
+            const ownerAGTAfter = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            const usdReceived = buyerUSDTAfter - buyerUSDTBefore;
+            const feeReceived = ownerAGTAfter - ownerAGTBefore;
+
+            console.log(`\n[Result]`);
+            console.log(`  Buyer received USD: $${Number(usdReceived) / 1e6}`);
+            console.log(`  Owner received fee: ${Number(feeReceived) / 1e18} AGT`);
+
+            expect(Number(usdReceived)).to.be.closeTo(Number(expectedUSD), 10);
+            expect(feeReceived).to.equal(burnFeeAmt);
+        });
+
+        it('should verify 1 AGT fee with varying spread/fee params', async function () {
+            const { owner, goldMinter } = await fixture();
+
+            const oneAGT = parseEther('1');
+
+            console.log('\n' + '='.repeat(60));
+            console.log('1 AGT FEE WITH DIFFERENT PARAMETERS');
+            console.log('='.repeat(60));
+
+            const testCases = [
+                { spread: 0, fee: 25, desc: 'No spread, 0.25% fee' },
+                { spread: 75, fee: 25, desc: '0.75% spread, 0.25% fee (default)' },
+                { spread: 150, fee: 50, desc: '1.5% spread, 0.5% fee' },
+                { spread: 300, fee: 100, desc: '3% spread, 1% fee (max)' },
+            ];
+
+            for (const { spread, fee, desc } of testCases) {
+                await goldMinter.write.updateMintSpread([spread], { account: owner.account });
+                await goldMinter.write.updateMintFee([fee], { account: owner.account });
+
+                const contractFee = (await goldMinter.read.calculateGoldFee([oneAGT, true])) as bigint;
+                // Simplified formula: fee = goldAmount × fee / 10000
+                const expectedFee = (BigInt(oneAGT) * BigInt(fee)) / 10000n;
+                const effectiveRate = fee;
+
+                console.log(`\n[${desc}]`);
+                console.log(`  Formula: 1 × ${fee} / 10000`);
+                console.log(`         = ${Number(expectedFee) / 1e18} AGT`);
+                console.log(`  Contract: ${Number(contractFee) / 1e18} AGT`);
+                console.log(`  Effective rate: ${effectiveRate / 100}%`);
+
+                expect(contractFee).to.equal(expectedFee);
+            }
+
+            // Restore defaults
+            await goldMinter.write.updateMintSpread([75], { account: owner.account });
+            await goldMinter.write.updateMintFee([25], { account: owner.account });
+
+            console.log('\n' + '='.repeat(60));
+        });
+    });
+
+    describe('Simplified Fee Calculation Verification', function () {
+        it('should verify mint fee formula: goldAmount × mintFee% (simplified)', async function () {
+            const { goldMinter } = await fixture();
+
+            // Get current parameters
+            const mintFee = Number(await goldMinter.read.mintFee()); // 25 = 0.25%
+
+            console.log('\n=== MINT FEE FORMULA VERIFICATION (SIMPLIFIED) ===');
+            console.log(`mintFee: ${mintFee / 100}% (${mintFee} bps)`);
+            console.log(`Formula: goldAmount × ${mintFee / 100}%`);
+            console.log(`       = goldAmount × ${mintFee} / 10000`);
+
+            // Test with various gold amounts
+            const testAmounts = [
+                { amount: parseEther('1'), desc: '1g' },
+                { amount: parseEther('10'), desc: '10g' },
+                { amount: parseEther('100'), desc: '100g' },
+                { amount: parseEther('1000'), desc: '1000g (1kg)' },
+            ];
+
+            for (const { amount, desc } of testAmounts) {
+                const calculatedFee = (await goldMinter.read.calculateGoldFee([amount, true])) as bigint;
+                // Simplified formula: fee = goldAmount × fee / 10000
+                const expectedFee = (BigInt(amount) * BigInt(mintFee)) / 10000n;
+
+                console.log(`\n${desc}:`);
+                console.log(`  Gold amount: ${Number(amount) / 1e18} AGT`);
+                console.log(`  Expected fee: ${Number(expectedFee) / 1e18} AGT`);
+                console.log(`  Contract fee: ${Number(calculatedFee) / 1e18} AGT`);
+                console.log(`  Fee %: ${((Number(calculatedFee) / Number(amount)) * 100).toFixed(4)}%`);
+
+                // Verify exact match
+                expect(calculatedFee).to.equal(expectedFee);
+            }
+
+            // Verify the effective fee rate
+            const effectiveFeeRate = mintFee;
+            console.log(`\nEffective mint fee rate: ${effectiveFeeRate / 100}%`);
+        });
+
+        it('should verify redeem fee formula: goldAmount × redeemFee% (simplified)', async function () {
+            const { goldMinter } = await fixture();
+
+            // Get current parameters
+            const redeemFee = Number(await goldMinter.read.redeemFee()); // 25 = 0.25%
+
+            console.log('\n=== REDEEM FEE FORMULA VERIFICATION (SIMPLIFIED) ===');
+            console.log(`redeemFee: ${redeemFee / 100}% (${redeemFee} bps)`);
+            console.log(`Formula: goldAmount × ${redeemFee / 100}%`);
+
+            // Test with various gold amounts
+            const testAmounts = [
+                { amount: parseEther('1'), desc: '1g' },
+                { amount: parseEther('10'), desc: '10g' },
+                { amount: parseEther('100'), desc: '100g' },
+            ];
+
+            for (const { amount, desc } of testAmounts) {
+                const calculatedFee = (await goldMinter.read.calculateGoldFee([amount, false])) as bigint;
+                // Simplified formula: fee = goldAmount × fee / 10000
+                const expectedFee = (BigInt(amount) * BigInt(redeemFee)) / 10000n;
+
+                console.log(`\n${desc}:`);
+                console.log(`  Gold amount: ${Number(amount) / 1e18} AGT`);
+                console.log(`  Expected fee: ${Number(expectedFee) / 1e18} AGT`);
+                console.log(`  Contract fee: ${Number(calculatedFee) / 1e18} AGT`);
+
+                // Verify exact match
+                expect(calculatedFee).to.equal(expectedFee);
+            }
+        });
+
+        it('should verify fee is independent of spread (simplified formula)', async function () {
+            const { owner, goldMinter } = await fixture();
+
+            const goldAmount = parseEther('100'); // 100g
+            const mintFee = Number(await goldMinter.read.mintFee()); // 25
+
+            console.log('\n=== FEE IS INDEPENDENT OF SPREAD (SIMPLIFIED) ===');
+            console.log(`Gold amount: 100g, mintFee: ${mintFee / 100}%`);
+
+            // Simplified formula: fee = goldAmount × fee / 10000 (spread doesn't affect fee)
+            const expectedFee = (BigInt(goldAmount) * BigInt(mintFee)) / 10000n;
+
+            // Test different spread values - fee should remain the same
+            const spreadTests = [
+                { spread: 0, desc: '0%' },
+                { spread: 75, desc: '0.75%' },
+                { spread: 150, desc: '1.5%' },
+                { spread: 300, desc: '3%' },
+            ];
+
+            for (const { spread, desc } of spreadTests) {
+                await goldMinter.write.updateMintSpread([spread], { account: owner.account });
+
+                const calculatedFee = (await goldMinter.read.calculateGoldFee([goldAmount, true])) as bigint;
+
+                console.log(`\nSpread ${desc} (${spread} bps):`);
+                console.log(`  Expected fee: ${Number(expectedFee) / 1e18} AGT`);
+                console.log(`  Contract fee: ${Number(calculatedFee) / 1e18} AGT`);
+                console.log(`  Fee rate: ${mintFee / 100}% (unchanged by spread)`);
+
+                // Fee should be the same regardless of spread
+                expect(calculatedFee).to.equal(expectedFee);
+            }
+
+            // Restore default spread
+            await goldMinter.write.updateMintSpread([75], { account: owner.account });
+        });
+
+        it('should verify fee changes when fee rate parameters change', async function () {
+            const { owner, goldMinter } = await fixture();
+
+            const goldAmount = parseEther('100'); // 100g
+
+            console.log('\n=== FEE CHANGE WITH FEE RATE CHANGE (SIMPLIFIED) ===');
+            console.log(`Gold amount: 100g`);
+
+            // Test different fee values
+            const feeTests = [
+                { fee: 0, desc: '0%' },
+                { fee: 25, desc: '0.25%' },
+                { fee: 50, desc: '0.5%' },
+                { fee: 100, desc: '1%' },
+            ];
+
+            for (const { fee, desc } of feeTests) {
+                await goldMinter.write.updateMintFee([fee], { account: owner.account });
+
+                const calculatedFee = (await goldMinter.read.calculateGoldFee([goldAmount, true])) as bigint;
+                // Simplified formula: fee = goldAmount × fee / 10000
+                const expectedFee = (BigInt(goldAmount) * BigInt(fee)) / 10000n;
+
+                console.log(`\nFee rate ${desc} (${fee} bps):`);
+                console.log(`  Expected fee: ${Number(expectedFee) / 1e18} AGT`);
+                console.log(`  Contract fee: ${Number(calculatedFee) / 1e18} AGT`);
+                console.log(`  Effective rate: ${fee / 100}%`);
+
+                expect(calculatedFee).to.equal(expectedFee);
+            }
+
+            // Restore default fee
+            await goldMinter.write.updateMintFee([25], { account: owner.account });
+        });
+
+        it('should verify minimum fee is applied for small amounts', async function () {
+            const { goldMinter } = await fixture();
+
+            const minGoldFeeAmount = (await goldMinter.read.minGoldFeeAmount()) as bigint;
+            const minGoldFee = (await goldMinter.read.minGoldFee()) as bigint;
+
+            console.log('\n=== MINIMUM FEE VERIFICATION ===');
+            console.log(`minGoldFeeAmount: ${Number(minGoldFeeAmount) / 1e18} AGT`);
+            console.log(`minGoldFee: ${Number(minGoldFee) / 1e18} AGT`);
+
+            // Test amounts below threshold
+            const smallAmounts = [parseEther('0.1'), parseEther('0.5'), parseEther('0.9')];
+
+            for (const amount of smallAmounts) {
+                const calculatedFee = (await goldMinter.read.calculateGoldFee([amount, true])) as bigint;
+
+                console.log(`\n${Number(amount) / 1e18}g (below ${Number(minGoldFeeAmount) / 1e18}g):`);
+                console.log(`  Fee: ${Number(calculatedFee) / 1e18} AGT`);
+                console.log(`  Expected: ${Number(minGoldFee) / 1e18} AGT (minimum fee)`);
+
+                // Should equal minimum fee
+                expect(calculatedFee).to.equal(minGoldFee);
+            }
+
+            // Test amount at/above threshold
+            const atThreshold = minGoldFeeAmount;
+            const feeAtThreshold = (await goldMinter.read.calculateGoldFee([atThreshold, true])) as bigint;
+
+            const mintFee = Number(await goldMinter.read.mintFee());
+            // Simplified formula: fee = goldAmount × fee / 10000
+            const expectedPercentageFee = (BigInt(atThreshold) * BigInt(mintFee)) / 10000n;
+
+            console.log(`\n${Number(atThreshold) / 1e18}g (at threshold):`);
+            console.log(`  Fee: ${Number(feeAtThreshold) / 1e18} AGT`);
+            console.log(`  Expected: ${Number(expectedPercentageFee) / 1e18} AGT (percentage fee)`);
+
+            // Should use percentage fee, not minimum
+            expect(feeAtThreshold).to.equal(expectedPercentageFee);
+        });
+
+        it('should verify mint uses mintSpread and redeem uses redeemSpread independently', async function () {
+            const { owner, goldMinter } = await fixture();
+
+            const goldAmount = parseEther('100'); // 100g
+
+            console.log('\n=== INDEPENDENT SPREAD VERIFICATION ===');
+
+            // Set different spreads for mint and redeem
+            await goldMinter.write.updateMintSpread([100], { account: owner.account }); // 1%
+            await goldMinter.write.updateRedeemSpread([200], { account: owner.account }); // 2%
+
+            const mintSpread = Number(await goldMinter.read.mintSpread());
+            const redeemSpread = Number(await goldMinter.read.redeemSpread());
+            const mintFee = Number(await goldMinter.read.mintFee());
+            const redeemFee = Number(await goldMinter.read.redeemFee());
+
+            console.log(`mintSpread: ${mintSpread / 100}%, mintFee: ${mintFee / 100}%`);
+            console.log(`redeemSpread: ${redeemSpread / 100}%, redeemFee: ${redeemFee / 100}%`);
+
+            // Calculate mint fee (isMint = true)
+            const mintFeeAmount = (await goldMinter.read.calculateGoldFee([goldAmount, true])) as bigint;
+            // Simplified formula: fee = goldAmount × fee / 10000
+            const expectedMintFee = (BigInt(goldAmount) * BigInt(mintFee)) / 10000n;
+
+            // Calculate redeem fee (isMint = false)
+            const redeemFeeAmount = (await goldMinter.read.calculateGoldFee([goldAmount, false])) as bigint;
+            const expectedRedeemFee = (BigInt(goldAmount) * BigInt(redeemFee)) / 10000n;
+
+            console.log(`\nMint fee (isMint=true):`);
+            console.log(`  Expected: ${Number(expectedMintFee) / 1e18} AGT (mintFee ${mintFee} bps)`);
+            console.log(`  Contract: ${Number(mintFeeAmount) / 1e18} AGT`);
+
+            console.log(`\nRedeem fee (isMint=false):`);
+            console.log(`  Expected: ${Number(expectedRedeemFee) / 1e18} AGT (redeemFee ${redeemFee} bps)`);
+            console.log(`  Contract: ${Number(redeemFeeAmount) / 1e18} AGT`);
+
+            // Verify mint fee
+            expect(mintFeeAmount).to.equal(expectedMintFee);
+
+            // Verify redeem fee
+            expect(redeemFeeAmount).to.equal(expectedRedeemFee);
+
+            // With simplified formula, mint and redeem fees are equal when fee rates are equal
+            expect(mintFeeAmount).to.equal(redeemFeeAmount);
+
+            // Restore defaults
+            await goldMinter.write.updateMintSpread([75], { account: owner.account });
+            await goldMinter.write.updateRedeemSpread([75], { account: owner.account });
+        });
+
+        it('should verify complete mint flow with simplified fee calculation', async function () {
+            const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
+
+            await goldMinter.write.updateAutoSettle();
+            await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
+
+            const usdAmount = parseUnits('1000', 6); // 1000 USDT
+
+            const mintSpread = Number(await goldMinter.read.mintSpread());
+            const mintFee = Number(await goldMinter.read.mintFee());
+
+            console.log('\n=== COMPLETE MINT FLOW VERIFICATION (SIMPLIFIED) ===');
+            console.log(`USD amount: $${Number(usdAmount) / 1e6}`);
+            console.log(`mintSpread: ${mintSpread / 100}%, mintFee: ${mintFee / 100}%`);
+
+            // Step 1: Calculate gross AGT (before fee)
+            const grossAGT = (await goldMinter.read.getGoldAmount([USDT.address, usdAmount])) as bigint;
+            console.log(`\nStep 1 - Gross AGT (with spread): ${Number(grossAGT) / 1e18} AGT`);
+
+            // Step 2: Calculate fee (simplified formula)
+            const fee = (await goldMinter.read.calculateGoldFee([grossAGT, true])) as bigint;
+            // Simplified formula: fee = goldAmount × fee / 10000
+            const expectedFee = (BigInt(grossAGT) * BigInt(mintFee)) / 10000n;
+            console.log(`Step 2 - Fee: ${Number(fee) / 1e18} AGT`);
+            console.log(`         Expected: ${Number(expectedFee) / 1e18} AGT`);
+            expect(fee).to.equal(expectedFee);
+
+            // Step 3: Calculate net AGT (user receives)
+            const netAGT = grossAGT - fee;
+            console.log(`Step 3 - Net AGT: ${Number(netAGT) / 1e18} AGT`);
+
+            // Execute mint
+            await USDT.write.approve([goldMinter.address, usdAmount], { account: buyer.account });
+
+            const initialBuyerAGT = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+            const initialOwnerAGT = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            await goldMinter.write.requestMint([USDT.address, usdAmount, netAGT], {
+                account: buyer.account,
+            });
+
+            const finalBuyerAGT = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+            const finalOwnerAGT = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            const buyerReceived = finalBuyerAGT - initialBuyerAGT;
+            const ownerReceived = finalOwnerAGT - initialOwnerAGT;
+
+            console.log(`\nResult:`);
+            console.log(`  Buyer received: ${Number(buyerReceived) / 1e18} AGT`);
+            console.log(`  Owner (fee): ${Number(ownerReceived) / 1e18} AGT`);
+            console.log(`  Total minted: ${Number(buyerReceived + ownerReceived) / 1e18} AGT`);
+
+            // Verify
+            expect(buyerReceived).to.equal(netAGT);
+            expect(ownerReceived).to.equal(fee);
+            expect(buyerReceived + ownerReceived).to.equal(grossAGT);
+        });
+
+        it('should verify complete burn flow with simplified fee calculation', async function () {
+            const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
+
+            // Setup: First mint some AGT for buyer
+            await goldMinter.write.updateAutoSettle();
+            await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
+
+            const mintUSD = parseUnits('1000', 6);
+            await USDT.write.approve([goldMinter.address, mintUSD], { account: buyer.account });
+
+            const grossAGT = (await goldMinter.read.getGoldAmount([USDT.address, mintUSD])) as bigint;
+            const mintFeeAmt = (await goldMinter.read.calculateGoldFee([grossAGT, true])) as bigint;
+            const netAGT = grossAGT - mintFeeAmt;
+
+            await goldMinter.write.requestMint([USDT.address, mintUSD, netAGT], {
+                account: buyer.account,
+            });
+
+            const burnAmount = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+
+            const redeemSpread = Number(await goldMinter.read.redeemSpread());
+            const redeemFee = Number(await goldMinter.read.redeemFee());
+
+            console.log('\n=== COMPLETE BURN FLOW VERIFICATION (SIMPLIFIED) ===');
+            console.log(`Burn amount: ${Number(burnAmount) / 1e18} AGT`);
+            console.log(`redeemSpread: ${redeemSpread / 100}%, redeemFee: ${redeemFee / 100}%`);
+
+            // Step 1: Calculate burn fee (simplified formula)
+            const burnFee = (await goldMinter.read.calculateGoldFee([burnAmount, false])) as bigint;
+            // Simplified formula: fee = goldAmount × fee / 10000
+            const expectedBurnFee = (BigInt(burnAmount) * BigInt(redeemFee)) / 10000n;
+            console.log(`\nStep 1 - Burn fee: ${Number(burnFee) / 1e18} AGT`);
+            console.log(`         Expected: ${Number(expectedBurnFee) / 1e18} AGT`);
+            expect(burnFee).to.equal(expectedBurnFee);
+
+            // Step 2: Calculate net gold after fee
+            const netGold = burnAmount - burnFee;
+            console.log(`Step 2 - Net gold: ${Number(netGold) / 1e18} AGT`);
+
+            // Step 3: Calculate USD return (with spread)
+            const expectedUSD = (await goldMinter.read.getUsdAmount([USDT.address, netGold])) as bigint;
+            console.log(`Step 3 - Expected USD: $${Number(expectedUSD) / 1e6}`);
+
+            // Execute burn
+            await goldToken.write.approve([goldMinter.address, burnAmount], { account: buyer.account });
+            await USDT.write.approve([goldMinter.address, expectedUSD], { account: owner.account });
+
+            const initialBuyerUSDT = (await USDT.read.balanceOf([buyer.account.address])) as bigint;
+            const initialOwnerAGT = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            await goldMinter.write.requestBurn([USDT.address, burnAmount, expectedUSD], {
+                account: buyer.account,
+            });
+
+            const finalBuyerUSDT = (await USDT.read.balanceOf([buyer.account.address])) as bigint;
+            const finalOwnerAGT = (await goldToken.read.balanceOf([owner.account.address])) as bigint;
+
+            const usdReceived = finalBuyerUSDT - initialBuyerUSDT;
+            const feeReceived = finalOwnerAGT - initialOwnerAGT;
+
+            console.log(`\nResult:`);
+            console.log(`  Buyer received: $${Number(usdReceived) / 1e6}`);
+            console.log(`  Owner (fee): ${Number(feeReceived) / 1e18} AGT`);
+
+            // Verify
+            expect(Number(usdReceived)).to.be.closeTo(Number(expectedUSD), 10);
+            expect(feeReceived).to.equal(burnFee);
+        });
+
+        it('should verify total round-trip cost calculation', async function () {
+            const { owner, buyer, USDT, goldToken, goldMinter } = await fixture();
+
+            await goldMinter.write.updateAutoSettle();
+            await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
+
+            const initialUSD = parseUnits('1000', 6); // $1000
+
+            const mintSpread = Number(await goldMinter.read.mintSpread());
+            const mintFee = Number(await goldMinter.read.mintFee());
+            const redeemSpread = Number(await goldMinter.read.redeemSpread());
+            const redeemFee = Number(await goldMinter.read.redeemFee());
+
+            console.log('\n=== TOTAL ROUND-TRIP COST VERIFICATION ===');
+            console.log(`Initial USD: $${Number(initialUSD) / 1e6}`);
+            console.log(`\nParameters:`);
+            console.log(`  mintSpread: ${mintSpread / 100}%, mintFee: ${mintFee / 100}%`);
+            console.log(`  redeemSpread: ${redeemSpread / 100}%, redeemFee: ${redeemFee / 100}%`);
+
+            // Step 1: Mint
+            await USDT.write.approve([goldMinter.address, initialUSD], { account: buyer.account });
+            const grossAGT = (await goldMinter.read.getGoldAmount([USDT.address, initialUSD])) as bigint;
+            const mintFeeAmt = (await goldMinter.read.calculateGoldFee([grossAGT, true])) as bigint;
+            const netAGT = grossAGT - mintFeeAmt;
+
+            await goldMinter.write.requestMint([USDT.address, initialUSD, netAGT], {
+                account: buyer.account,
+            });
+
+            const buyerAGT = (await goldToken.read.balanceOf([buyer.account.address])) as bigint;
+
+            console.log(`\nAfter Mint:`);
+            console.log(`  Gross AGT: ${Number(grossAGT) / 1e18}`);
+            console.log(`  Mint fee: ${Number(mintFeeAmt) / 1e18} AGT`);
+            console.log(`  Net AGT: ${Number(buyerAGT) / 1e18}`);
+
+            // Step 2: Burn all
+            await goldToken.write.approve([goldMinter.address, buyerAGT], { account: buyer.account });
+            const burnFeeAmt = (await goldMinter.read.calculateGoldFee([buyerAGT, false])) as bigint;
+            const expectedUSD = (await goldMinter.read.getUsdAmount([
+                USDT.address,
+                buyerAGT - burnFeeAmt,
+            ])) as bigint;
+
+            await USDT.write.approve([goldMinter.address, expectedUSD], { account: owner.account });
+
+            const buyerUSDTBefore = (await USDT.read.balanceOf([buyer.account.address])) as bigint;
+
+            await goldMinter.write.requestBurn([USDT.address, buyerAGT, expectedUSD], {
+                account: buyer.account,
+            });
+
+            const buyerUSDTAfter = (await USDT.read.balanceOf([buyer.account.address])) as bigint;
+            const finalUSD = buyerUSDTAfter - buyerUSDTBefore;
+
+            console.log(`\nAfter Burn:`);
+            console.log(`  Burn fee: ${Number(burnFeeAmt) / 1e18} AGT`);
+            console.log(`  Final USD: $${Number(finalUSD) / 1e6}`);
+
+            // Calculate costs
+            const totalCost = Number(initialUSD) - Number(finalUSD);
+            const totalCostPercent = (totalCost / Number(initialUSD)) * 100;
+
+            // Expected total cost breakdown (simplified formula):
+            // 1. Mint spread: user gets less AGT (pays higher price) - 0.75%
+            // 2. Mint fee: fee deducted from AGT - 0.25%
+            // 3. Redeem spread: user gets less USD (receives lower price) - 0.75%
+            // 4. Redeem fee: fee deducted from AGT - 0.25%
+
+            const mintSpreadCost = mintSpread / 100; // 0.75%
+            const mintFeeCost = mintFee / 100; // 0.25% (simplified - no spread multiplier)
+            const redeemSpreadCost = redeemSpread / 100; // 0.75%
+            const redeemFeeCost = redeemFee / 100; // 0.25% (simplified - no spread multiplier)
+
+            console.log(`\n=== COST BREAKDOWN (SIMPLIFIED) ===`);
+            console.log(`  Mint spread: ${mintSpreadCost}%`);
+            console.log(`  Mint fee: ${mintFeeCost}%`);
+            console.log(`  Redeem spread: ${redeemSpreadCost}%`);
+            console.log(`  Redeem fee: ${redeemFeeCost}%`);
+            console.log(
+                `  Total expected: ${(mintSpreadCost + mintFeeCost + redeemSpreadCost + redeemFeeCost).toFixed(2)}%`,
+            );
+            console.log(`  Actual total: ${totalCostPercent.toFixed(4)}%`);
+            console.log(`  Total USD cost: $${totalCost / 1e6}`);
+
+            // Verify total cost is approximately 2% (all spreads + fees combined)
+            expect(totalCostPercent).to.be.closeTo(2, 0.5); // ~2% with 0.5% tolerance
+        });
+    });
+
     describe('Fee Admin Functions', function () {
         it('should allow owner to update mintFee', async function () {
             const { owner, goldMinter } = await fixture();
@@ -1533,6 +2264,8 @@ describe('GoldMinter', function () {
             const { owner, goldMinter } = await fixture();
 
             const goldAmount = parseEther('10'); // 10g gold
+
+            // Simplified fee formula: goldAmount × fee / 10000
 
             // Fee with default 0.25%
             const fee25bps = await goldMinter.read.calculateGoldFee([goldAmount, true]);

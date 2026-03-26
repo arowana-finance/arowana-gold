@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from 'chai';
-import { parseEther, zeroAddress, getAddress, maxUint256, encodeFunctionData, keccak256, toHex } from 'viem';
+import { parseEther, zeroAddress, getAddress, maxUint256, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const TOKEN_NAME = 'Arowana Gold Token';
@@ -9,7 +9,6 @@ const TOKEN_DECIMALS = 18;
 
 // AccessControl role constants
 const DEFAULT_ADMIN_ROLE = '0x0000000000000000000000000000000000000000000000000000000000000000';
-const MINTER_ROLE = keccak256(toHex('MINTER_ROLE'));
 
 describe('GoldToken', function () {
     const fixture = async () => {
@@ -78,7 +77,7 @@ describe('GoldToken', function () {
 
         it('Should not add deployer as initial minter', async function () {
             const { owner, goldToken } = await fixture();
-            const minters = await goldToken.read.minters();
+            const minters = (await goldToken.read.minters()) as any[];
             expect(minters).to.not.include(getAddress(owner.account.address));
             expect(minters.length).to.equal(0);
         });
@@ -110,9 +109,11 @@ describe('GoldToken', function () {
             // Should not revert, just emit event
             await goldToken.write.addMinter([owner.account.address]);
 
-            const minters = await goldToken.read.minters();
+            const minters = (await goldToken.read.minters()) as any[];
             // Should still have only one entry for owner
-            const ownerCount = minters.filter((m: string) => getAddress(m) === getAddress(owner.account.address)).length;
+            const ownerCount = minters.filter(
+                (m: string) => getAddress(m) === getAddress(owner.account.address),
+            ).length;
             expect(ownerCount).to.equal(1);
         });
 
@@ -136,15 +137,15 @@ describe('GoldToken', function () {
             expect(events[events.length - 1].args.oldMinter).to.equal(getAddress(user1.account.address));
         });
 
-        it('Should handle removing non-existent minters gracefully', async function () {
-            const { user1, goldToken } = await fixture();
+        it('Should revert when removing non-existent minters', async function () {
+            const { user1, goldToken, viem } = await fixture();
 
-            // AccessControl allows revoking role from non-member (no-op)
-            // Should not revert
-            await goldToken.write.removeMinter([user1.account.address]);
-
-            const minters = await goldToken.read.minters();
-            expect(minters).to.not.include(getAddress(user1.account.address));
+            // Should revert with NotMinter error
+            await viem.assertions.revertWithCustomError(
+                goldToken.write.removeMinter([user1.account.address]),
+                goldToken,
+                'NotMinter',
+            );
         });
 
         it('Should only allow admin to manage minters', async function () {

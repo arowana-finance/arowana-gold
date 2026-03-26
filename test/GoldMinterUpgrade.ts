@@ -134,9 +134,15 @@ describe('GoldMinter - Upgrade Tests', function () {
         const KYC_MANAGER_ROLE = await goldMinter.read.KYC_MANAGER_ROLE();
 
         await goldMinter.write.grantRole([SETTLER_ROLE, owner.account.address], { account: owner.account });
-        await goldMinter.write.grantRole([PARAMETER_MANAGER_ROLE, owner.account.address], { account: owner.account });
-        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], { account: owner.account });
-        await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], { account: owner.account });
+        await goldMinter.write.grantRole([PARAMETER_MANAGER_ROLE, owner.account.address], {
+            account: owner.account,
+        });
+        await goldMinter.write.grantRole([INFRA_MANAGER_ROLE, owner.account.address], {
+            account: owner.account,
+        });
+        await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], {
+            account: owner.account,
+        });
 
         await goldToken.write.addMinter([goldMinter.address], {
             account: owner.account,
