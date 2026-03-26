@@ -560,7 +560,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         // Validate request using extracted functions
         _validateSlippage(expectedOutput - feeAmount, _minGoldAmount, slippage_);
-        _validateMinimumAmount(_minGoldAmount, $.minGoldAmount);
+        // Validate gross minted amount >= minGoldAmount (user may receive less after fee)
+        _validateMinimumAmount(expectedOutput, $.minGoldAmount);
         // commented out here to allow overbooking over reserves
         _validateUserPermissions($, tradeLevel_);
 
@@ -737,6 +738,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     }
 
     /// @dev Return fee amount in Gold
+    /// @notice Fee is calculated based on 1 AGT price (gold price ± spread)
     /// @param _goldAmount Amount of gold to calculate fee for
     /// @param isMint True for mint fee, false for redeem fee
     function calculateGoldFee(uint256 _goldAmount, bool isMint) public view returns (uint256) {
@@ -745,12 +747,12 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         // Cache fee variables for efficiency
         uint256 minGoldFeeAmount_ = $.minGoldFeeAmount;
         uint256 minGoldFee_ = $.minGoldFee;
-        uint16 feeRate = isMint ? $.mintFee : $.redeemFee;
+        uint16 fee = isMint ? $.mintFee : $.redeemFee;
 
         if (_goldAmount < minGoldFeeAmount_) {
             return minGoldFee_;
         }
-        return (_goldAmount * feeRate) / 10000;
+        return (_goldAmount * fee) / 10000;
     }
 
     // ============ Internal Functions ============
