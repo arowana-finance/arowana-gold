@@ -325,7 +325,11 @@ describe('GoldMinter - Upgrade Tests', function () {
             account: owner.account,
         });
 
-        await goldMinter.write.updateMinGold([parseEther('0.05')], {
+        await goldMinter.write.updateMinMintAmount([parseEther('0.05')], {
+            account: owner.account,
+        });
+
+        await goldMinter.write.updateMinRedeemAmount([parseEther('0.05')], {
             account: owner.account,
         });
 

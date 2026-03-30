@@ -76,7 +76,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         uint16 redeemSpread;    // Spread for redeem (e.g., 75 = 0.75%)
         uint16 mintFee;         // Fee for mint (e.g., 25 = 0.25%)
         uint16 redeemFee;       // Fee for redeem (e.g., 25 = 0.25%)
-        uint256 minGoldAmount;
+        uint256 minMintAmount;  // Minimum gold amount for mint (e.g., 1 ether = 1 gram)
+        uint256 minRedeemAmount; // Minimum gold amount for redeem (e.g., 1 ether = 1 gram)
         uint256 minGoldFee;
         uint256 minGoldFeeAmount;
         bool autoSettle;
@@ -119,7 +120,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     event UpdateRedeemSpread(uint16 newRedeemSpread);
     event UpdateMintFee(uint16 newMintFee);
     event UpdateRedeemFee(uint16 newRedeemFee);
-    event UpdateMinGold(uint256 minGoldAmount);
+    event UpdateMinMintAmount(uint256 minMintAmount);
+    event UpdateMinRedeemAmount(uint256 minRedeemAmount);
     event UpdateMinGoldFee(uint256 minGoldFee);
     event UpdateMinGoldFeeAmount(uint256 minGoldFeeAmount);
     event UpdateAutoSettle(bool settle);
@@ -191,7 +193,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         $.redeemSpread = 75; // 0.75%
         $.mintFee = 25; // 0.25%
         $.redeemFee = 25; // 0.25%
-        $.minGoldAmount = 1 ether; // 1 gram
+        $.minMintAmount = 1 ether; // 1 gram
+        $.minRedeemAmount = 1 ether; // 1 gram
         $.minGoldFee = 0.01 ether; // 0.01 gram
         $.minGoldFeeAmount = 1 ether; // 1 gram
         $.autoSettle = _autoSettle;
@@ -344,10 +347,16 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         emit UpdateRedeemFee(_redeemFee);
     }
 
-    function updateMinGold(uint256 _minGold) external onlyRole(PARAMETER_MANAGER_ROLE) {
+    function updateMinMintAmount(uint256 _minMintAmount) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
-        $.minGoldAmount = _minGold;
-        emit UpdateMinGold(_minGold);
+        $.minMintAmount = _minMintAmount;
+        emit UpdateMinMintAmount(_minMintAmount);
+    }
+
+    function updateMinRedeemAmount(uint256 _minRedeemAmount) external onlyRole(PARAMETER_MANAGER_ROLE) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.minRedeemAmount = _minRedeemAmount;
+        emit UpdateMinRedeemAmount(_minRedeemAmount);
     }
 
     function updateMinGoldFee(uint256 _minGoldFee) external onlyRole(PARAMETER_MANAGER_ROLE) {
@@ -560,8 +569,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         // Validate request using extracted functions
         _validateSlippage(expectedOutput - feeAmount, _minGoldAmount, slippage_);
-        // Validate gross minted amount >= minGoldAmount (user may receive less after fee)
-        _validateMinimumAmount(expectedOutput, $.minGoldAmount);
+        // Validate gross minted amount >= minMintAmount (user may receive less after fee)
+        _validateMinimumAmount(expectedOutput, $.minMintAmount);
         // commented out here to allow overbooking over reserves
         _validateUserPermissions($, tradeLevel_);
 
@@ -613,7 +622,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         // Validate request using extracted functions
         _validateSlippage(expectedOutput, _minUsdAmount, slippage_);
-        _validateMinimumAmount(_goldAmount, $.minGoldAmount);
+        _validateMinimumAmount(_goldAmount, $.minRedeemAmount);
         _validateUserPermissions($, tradeLevel_);
 
         IERC20Exp usdToken = _getUSDToken($, _usdToken);
@@ -716,9 +725,13 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         return $.tradeLevel;
     }
-    function minGoldAmount() public view returns (uint256) {
+    function minMintAmount() public view returns (uint256) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
-        return $.minGoldAmount;
+        return $.minMintAmount;
+    }
+    function minRedeemAmount() public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.minRedeemAmount;
     }
     function minGoldFee() public view returns (uint256) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
@@ -959,7 +972,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         emit UpdateRedeemSpread($.redeemSpread);
         emit UpdateMintFee($.mintFee);
         emit UpdateRedeemFee($.redeemFee);
-        emit UpdateMinGold($.minGoldAmount);
+        emit UpdateMinMintAmount($.minMintAmount);
+        emit UpdateMinRedeemAmount($.minRedeemAmount);
         emit UpdateMinGoldFee($.minGoldFee);
         emit UpdateMinGoldFeeAmount($.minGoldFeeAmount);
         emit UpdateAutoSettle($.autoSettle);
