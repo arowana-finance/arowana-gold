@@ -622,12 +622,14 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         usdToken.safeTransferFrom(msg.sender, $.usdRecipient, actualUsdAmount);
 
+        uint256 storedMinGoldAmount = tradeUnit_ > 0 ? expectedOutput - feeAmount : _minGoldAmount;
+
         $.mintOrders.push(
             IGoldMinter.MintOrder({
                 buyer: msg.sender,
                 usdToken: address(usdToken),
                 usdAmount: actualUsdAmount,
-                minGoldAmount: tradeUnit_ > 0 ? expectedOutput - feeAmount : _minGoldAmount,
+                minGoldAmount: storedMinGoldAmount,
                 goldAmount: expectedOutput,
                 feeAmount: feeAmount,
                 success: false,
@@ -637,7 +639,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         $.userMintNonces[msg.sender].push(mintNonce);
 
-        emit RequestMint(mintNonce, msg.sender, address(usdToken), actualUsdAmount, _minGoldAmount);
+        emit RequestMint(mintNonce, msg.sender, address(usdToken), actualUsdAmount, storedMinGoldAmount);
 
         if ($.autoSettle) {
             _settleMint(mintNonce, expectedOutput);
