@@ -3,8 +3,8 @@ import { expect } from 'chai';
 import { parseEther, zeroAddress, getAddress, maxUint256, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
-const TOKEN_NAME = 'Arowana Gold Token';
-const TOKEN_SYMBOL = 'AGT';
+const TOKEN_NAME = 'Ontorium Gold Token';
+const TOKEN_SYMBOL = 'OXAU';
 const TOKEN_DECIMALS = 18;
 
 // AccessControl role constants

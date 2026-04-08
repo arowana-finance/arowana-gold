@@ -20,8 +20,8 @@ import { getGoldPrice } from './goldPrice.js';
 
 const { viem } = await network.connect();
 
-const AGT_NAME = 'Arowana Gold Token';
-const AGT_SYMBOL = 'AGT';
+const AGT_NAME = 'Ontorium Gold Token';
+const AGT_SYMBOL = 'OXAU';
 const USD_TOKEN_DECIMALS = 6;
 const ORACLE_DECIMALS = 8;
 
@@ -262,6 +262,7 @@ async function deployGoldMinter(
             USDC.address,
             goldPriceFeed.address,
             owner.account!.address,
+            owner.account!.address, // feeRecipient
             owner.account!.address,
             true,
         ],
