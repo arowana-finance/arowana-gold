@@ -199,10 +199,10 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         $.redeemSpread = 75; // 0.75%
         $.mintFee = 25; // 0.25%
         $.redeemFee = 25; // 0.25%
-        $.minMintAmount = 1 ether; // 1 gram
-        $.minRedeemAmount = 1 ether; // 1 gram
-        $.minGoldFee = 0.01 ether; // 0.01 gram
-        $.minGoldFeeAmount = 1 ether; // 1 gram
+        $.minMintAmount = 1000 ether; // 1kg
+        $.minRedeemAmount = 1000 ether; // 1kg
+        $.minGoldFee = 2.5 ether; // 2.5 gram
+        $.minGoldFeeAmount = 1000 ether; // 1kg
         $.autoSettle = _autoSettle;
         $.tradeLevel = IGoldMinter.Levels.KYCD;
         $.usdRecipient = _usdRecipient;
