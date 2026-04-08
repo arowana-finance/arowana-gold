@@ -56,7 +56,6 @@ describe('GoldMinter Full Test - Burn Settlement & Security', function () {
         const blacklistOracle = await viem.getContractAt('BlacklistOracle', blacklistOracleProxy.address);
 
         // ====== 2. Deploy GoldToken ======
-        // GoldToken: Gold token (AGT - Arowana Gold Token)
         const goldTokenImplementation = await viem.deployContract('GoldToken', []);
         const goldTokenProxy = await viem.deployContract('InitializableProxy', []);
 
@@ -68,7 +67,7 @@ describe('GoldMinter Full Test - Burn Settlement & Security', function () {
 
         await goldTokenProxy.write.initializeProxy(
             [
-                'Arowana Gold Token',
+                'Ontorium Gold Token',
                 owner.account!.address,
                 goldTokenImplementation.address,
                 goldTokenInitData,
@@ -138,6 +137,7 @@ describe('GoldMinter Full Test - Burn Settlement & Security', function () {
                 USDC.address, // USDC address
                 goldPriceFeed.address, // Price feed address
                 owner.account.address, // usdRecipient (Treasury - USD recipient address)
+                owner.account.address, // feeRecipient
                 owner.account.address, // owner (contract owner)
                 true, // autoSettle: true (enable auto settlement)
             ],

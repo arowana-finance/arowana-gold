@@ -55,7 +55,7 @@ describe('GoldMinter', function () {
 
         await goldTokenProxy.write.initializeProxy(
             [
-                'Arowana Gold Token',
+                'Ontorium Gold Token',
                 owner.account!.address,
                 goldTokenImplementation.address,
                 goldTokenInitData,
@@ -117,6 +117,7 @@ describe('GoldMinter', function () {
                 USDC.address,
                 goldPriceFeed.address,
                 owner.account.address,
+                owner.account.address, // feeRecipient
                 owner.account.address,
                 false,
             ],
@@ -176,6 +177,7 @@ describe('GoldMinter', function () {
                 USDC.address,
                 '0x0000000000000000000000000000000000000001',
                 owner.account.address,
+                owner.account.address, // feeRecipient
                 owner.account.address,
                 false,
             ],

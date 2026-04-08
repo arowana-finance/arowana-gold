@@ -20,6 +20,8 @@ library Errors {
     error SmallAmount();
     error Underlevel();
     error AMLBlocked();
+    error NotTradeUnitMultiple();
+    error InsufficientUsdAmount();
 
     // ============ Order Management Errors ============
     error InvalidNonce();

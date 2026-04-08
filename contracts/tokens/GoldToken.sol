@@ -48,7 +48,7 @@ contract GoldToken is InitializableERC20, AccessControlEnumerableUpgradeable {
 	// ============ Initializer ============
 
     function initializeGoldToken(address _initOwner, address _blacklistOracle) public initializer {
-        initializeToken('Arowana Gold Token', 'AGT', 18, 0);
+        initializeToken('Ontorium Gold Token', 'OXAU', 18, 0);
 		__AccessControl_init();
 
 		GoldTokenStorage storage $ = _getGoldTokenStorage();

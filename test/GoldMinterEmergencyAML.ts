@@ -54,7 +54,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
 
         await goldTokenProxy.write.initializeProxy(
             [
-                'Arowana Gold Token',
+                'Ontorium Gold Token',
                 owner.account!.address,
                 goldTokenImplementation.address,
                 goldTokenInitData,
@@ -116,6 +116,7 @@ describe('GoldMinter - Emergency Pause & AML', function () {
                 USDC.address,
                 goldPriceFeed.address,
                 owner.account.address,
+                owner.account.address, // feeRecipient
                 owner.account.address,
                 true,
             ],

@@ -78,6 +78,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         uint16 redeemFee;       // Fee for redeem (e.g., 25 = 0.25%)
         uint256 minMintAmount;  // Minimum gold amount for mint (e.g., 1 ether = 1 gram)
         uint256 minRedeemAmount; // Minimum gold amount for redeem (e.g., 1 ether = 1 gram)
+        uint256 tradeUnit; // 0 = disabled (free amount), >0 = enforced unit (e.g., 1000 ether = 1kg)
+        address feeRecipient; // Gold fee recipient (separate from usdRecipient)
         uint256 minGoldFee;
         uint256 minGoldFeeAmount;
         bool autoSettle;
@@ -127,6 +129,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     event UpdateAutoSettle(bool settle);
     event UpdateTradingLevel(IGoldMinter.Levels level);
     event UpdateRecipient(address newRecipient);
+    event UpdateFeeRecipient(address newFeeRecipient);
+    event UpdateTradeUnit(uint256 tradeUnit);
 
     event AMLBlacklisted(address indexed user, bool blacklisted);
     event EmergencyPaused(address indexed by, bool paused);
@@ -171,6 +175,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         address _USDC,
         address _goldPriceFeed,
         address _usdRecipient,
+        address _feeRecipient,
         address _owner,
         bool _autoSettle
     ) public virtual initializer {
@@ -179,6 +184,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         if (_USDC == address(0)) revert Errors.ZeroUSDC();
         if (_goldPriceFeed == address(0)) revert Errors.ZeroPriceFeed();
         if (_usdRecipient == address(0)) revert Errors.ZeroRecipient();
+        if (_feeRecipient == address(0)) revert Errors.ZeroRecipient();
         if (_owner == address(0)) revert Errors.ZeroOwner();
 
         GoldMinterStorage storage $ = _getGoldMinterStorage();
@@ -193,13 +199,14 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         $.redeemSpread = 75; // 0.75%
         $.mintFee = 25; // 0.25%
         $.redeemFee = 25; // 0.25%
-        $.minMintAmount = 1 ether; // 1 gram
-        $.minRedeemAmount = 1 ether; // 1 gram
-        $.minGoldFee = 0.01 ether; // 0.01 gram
-        $.minGoldFeeAmount = 1 ether; // 1 gram
+        $.minMintAmount = 1000 ether; // 1kg
+        $.minRedeemAmount = 1000 ether; // 1kg
+        $.minGoldFee = 2.5 ether; // 2.5 gram
+        $.minGoldFeeAmount = 1000 ether; // 1kg
         $.autoSettle = _autoSettle;
         $.tradeLevel = IGoldMinter.Levels.KYCD;
         $.usdRecipient = _usdRecipient;
+        $.feeRecipient = _feeRecipient;
         $.maxPriceAge = 10 minutes;
         // Oracle price validation limits (ounce-based, matches Oracle format)
         $.minGoldPrice = 500e8; // $500/ounce
@@ -390,6 +397,19 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         emit UpdateRecipient(_usdRecipient);
     }
 
+    function updateFeeRecipient(address _feeRecipient) external onlyRole(INFRA_MANAGER_ROLE) {
+        if (_feeRecipient == address(0)) revert Errors.ZeroRecipient();
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.feeRecipient = _feeRecipient;
+        emit UpdateFeeRecipient(_feeRecipient);
+    }
+
+    function updateTradeUnit(uint256 _tradeUnit) external onlyRole(PARAMETER_MANAGER_ROLE) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        $.tradeUnit = _tradeUnit;
+        emit UpdateTradeUnit(_tradeUnit);
+    }
+
     function setAMLBlacklist(address user, bool blacklisted) external onlyRole(KYC_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         $.amlBlacklist[user] = blacklisted;
@@ -552,6 +572,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     }
 
     /// @notice Request mint with pre-set KYC level (requires approval in advance)
+    /// @dev When tradeUnit > 0 (unit mode): _minGoldAmount = gross gold amount (must be tradeUnit multiple),
+    ///      _usdAmount = maximum USD willing to pay. When tradeUnit == 0 (free mode): current behavior.
     function requestMint(
         address _usdToken,
         uint256 _usdAmount,
@@ -560,32 +582,54 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         GoldMinterStorage storage $ = _getGoldMinterStorage();
 
         // Cache frequently used variables to reduce storage reads
-        uint16 slippage_ = $.slippage;
         IGoldMinter.Levels tradeLevel_ = $.tradeLevel;
+        uint256 tradeUnit_ = $.tradeUnit;
 
-        // Apply maximum 5% slippage
-        uint256 expectedOutput = getGoldAmount(_usdToken, _usdAmount);
-        uint256 feeAmount = calculateGoldFee(expectedOutput, true);
+        uint256 expectedOutput;
+        uint256 feeAmount;
+        uint256 actualUsdAmount;
 
-        // Validate request using extracted functions
-        _validateSlippage(expectedOutput - feeAmount, _minGoldAmount, slippage_);
-        // Validate gross minted amount >= minMintAmount (user may receive less after fee)
-        _validateMinimumAmount(expectedOutput, $.minMintAmount);
-        // commented out here to allow overbooking over reserves
-        _validateUserPermissions($, tradeLevel_);
+        if (tradeUnit_ > 0) {
+            // ── TradeUnit mode: gross gold is fixed to _minGoldAmount (must be tradeUnit multiple) ──
+            _validateTradeUnit(_minGoldAmount, tradeUnit_);
+
+            expectedOutput = _minGoldAmount; // gross gold = exact tradeUnit multiple
+            feeAmount = calculateGoldFee(expectedOutput, true);
+
+            _validateMinimumAmount(expectedOutput, $.minMintAmount);
+            _validateUserPermissions($, tradeLevel_);
+
+            // Calculate required USD (inverse of getGoldAmount, with ceiling)
+            actualUsdAmount = getRequiredUsd(_usdToken, expectedOutput);
+            if (actualUsdAmount > _usdAmount) revert Errors.InsufficientUsdAmount();
+        } else {
+            // ── Free mode: current behavior ──
+            uint16 slippage_ = $.slippage;
+
+            expectedOutput = getGoldAmount(_usdToken, _usdAmount);
+            feeAmount = calculateGoldFee(expectedOutput, true);
+
+            _validateSlippage(expectedOutput - feeAmount, _minGoldAmount, slippage_);
+            _validateMinimumAmount(expectedOutput, $.minMintAmount);
+            _validateUserPermissions($, tradeLevel_);
+
+            actualUsdAmount = _usdAmount;
+        }
 
         IERC20Exp usdToken = _getUSDToken($, _usdToken);
 
         uint256 mintNonce = $.mintOrders.length;
 
-        usdToken.safeTransferFrom(msg.sender, $.usdRecipient, _usdAmount);
+        usdToken.safeTransferFrom(msg.sender, $.usdRecipient, actualUsdAmount);
+
+        uint256 storedMinGoldAmount = tradeUnit_ > 0 ? expectedOutput - feeAmount : _minGoldAmount;
 
         $.mintOrders.push(
             IGoldMinter.MintOrder({
                 buyer: msg.sender,
                 usdToken: address(usdToken),
-                usdAmount: _usdAmount,
-                minGoldAmount: _minGoldAmount,
+                usdAmount: actualUsdAmount,
+                minGoldAmount: storedMinGoldAmount,
                 goldAmount: expectedOutput,
                 feeAmount: feeAmount,
                 success: false,
@@ -595,7 +639,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         $.userMintNonces[msg.sender].push(mintNonce);
 
-        emit RequestMint(mintNonce, msg.sender, address(usdToken), _usdAmount, _minGoldAmount);
+        emit RequestMint(mintNonce, msg.sender, address(usdToken), actualUsdAmount, storedMinGoldAmount);
 
         if ($.autoSettle) {
             _settleMint(mintNonce, expectedOutput);
@@ -611,6 +655,10 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         uint256 _minUsdAmount
     ) public nonReentrant whenNotPaused {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
+
+        // TradeUnit validation: goldAmount must be a multiple of tradeUnit
+        uint256 tradeUnit_ = $.tradeUnit;
+        if (tradeUnit_ > 0) _validateTradeUnit(_goldAmount, tradeUnit_);
 
         // Cache frequently used variables to reduce storage reads
         uint16 slippage_ = $.slippage;
@@ -656,17 +704,15 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     }
 
     function getGoldAmount(address usdToken, uint256 usdAmount) public view returns (uint256) {
-        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        (uint256 spreadAdjustedPrice, uint256 decimalFactor) = _getMintPriceParams(usdToken);
+        return (usdAmount * decimalFactor) / spreadAdjustedPrice;
+    }
 
-        (uint256 latestPrice, uint8 priceOracleDecimals) = _getValidatedPrice();
-        (uint8 goldDecimals, , , ) = _getTokenDecimals($);
-        uint8 usdDecimals = IERC20Exp(usdToken).decimals();
-
-        // Apply mintSpread: price increases by mintSpread% (user gets less gold)
-        // Formula: goldAmount = usdAmount / (price * (1 + spread))
-        uint256 spreadAdjustedPrice = (latestPrice * (10000 + $.mintSpread)) / 10000;
-
-        return (usdAmount * 10 ** (priceOracleDecimals + goldDecimals - usdDecimals)) / spreadAdjustedPrice;
+    /// @notice Inverse of getGoldAmount: calculate required USD for a given gold amount (with mintSpread, ceiling)
+    function getRequiredUsd(address usdToken, uint256 goldAmount) public view returns (uint256) {
+        (uint256 spreadAdjustedPrice, uint256 decimalFactor) = _getMintPriceParams(usdToken);
+        // Ceiling division: ensures enough USD to cover goldAmount
+        return (goldAmount * spreadAdjustedPrice + decimalFactor - 1) / decimalFactor;
     }
 
     function getUsdAmount(address usdToken, uint256 goldAmount) public view returns (uint256) {
@@ -733,6 +779,14 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         return $.minRedeemAmount;
     }
+    function tradeUnit() public view returns (uint256) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.tradeUnit;
+    }
+    function feeRecipient() public view returns (address) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        return $.feeRecipient;
+    }
     function minGoldFee() public view returns (uint256) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
         return $.minGoldFee;
@@ -793,7 +847,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
             // Mint desired gold amount
         } else {
             $.mintOrders[mintNonce].goldAmount = goldAmount;
-            $.goldToken.mint($.usdRecipient, feeAmount);
+            $.goldToken.mint($.feeRecipient, feeAmount);
             $.goldToken.mint($.mintOrders[mintNonce].buyer, netGoldAmount);
         }
 
@@ -825,7 +879,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
             $.goldToken.safeTransfer($.burnOrders[burnNonce].seller, goldAmount);
         } else {
             $.goldToken.burn(goldAmount - feeAmount);
-            $.goldToken.safeTransfer($.usdRecipient, feeAmount);
+            $.goldToken.safeTransfer($.feeRecipient, feeAmount);
             usdToken.safeTransferFrom($.usdRecipient, $.burnOrders[burnNonce].seller, usdAmount);
         }
 
@@ -861,6 +915,16 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         if ($.amlBlacklist[msg.sender]) revert Errors.AMLBlocked();
     }
 
+    /// @dev Shared price params for mint-side calculations (getGoldAmount / getRequiredUsd)
+    function _getMintPriceParams(address usdToken) internal view returns (uint256 spreadAdjustedPrice, uint256 decimalFactor) {
+        GoldMinterStorage storage $ = _getGoldMinterStorage();
+        (uint256 latestPrice, uint8 priceOracleDecimals) = _getValidatedPrice();
+        (uint8 goldDecimals, , , ) = _getTokenDecimals($);
+        uint8 usdDecimals = IERC20Exp(usdToken).decimals();
+        spreadAdjustedPrice = (latestPrice * (10000 + $.mintSpread)) / 10000;
+        decimalFactor = 10 ** (priceOracleDecimals + goldDecimals - usdDecimals);
+    }
+
     /// @dev Common slippage validation logic
     function _validateSlippage(uint256 expectedOutput, uint256 minAmount, uint16 slippage_) internal pure {
         if (
@@ -872,6 +936,11 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     /// @dev Common minimum amount validation
     function _validateMinimumAmount(uint256 amount, uint256 minRequired) internal pure {
         if (amount < minRequired) revert Errors.SmallAmount();
+    }
+
+    /// @dev Validate amount is a non-zero multiple of tradeUnit
+    function _validateTradeUnit(uint256 amount, uint256 tradeUnit_) internal pure {
+        if (amount == 0 || amount % tradeUnit_ != 0) revert Errors.NotTradeUnitMultiple();
     }
 
     /// @dev Process KYC verification and update user level
@@ -980,6 +1049,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         emit UpdateTradingLevel($.tradeLevel);
         emit UpdateRecipient($.usdRecipient);
+        emit UpdateFeeRecipient($.feeRecipient);
 
         uint8 goldDecimals = $.goldToken.decimals();
         uint8 usdtDecimals = $.USDT.decimals();
