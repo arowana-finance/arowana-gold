@@ -152,6 +152,13 @@ describe('GoldMinter - Upgrade Tests', function () {
         await USDC.write.approve([goldMinter.address, maxUint256], { account: owner.account });
         await USDT.write.approve([goldMinter.address, maxUint256], { account: owner.account });
 
+        // The contract defaults have been changed to 1kg units, but these tests assume
+        // gram-based amounts, so revert the minimum values back to 1g in the fixture.
+        await goldMinter.write.updateMinMintAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinRedeemAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFee([parseEther('0.01')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFeeAmount([parseEther('1')], { account: owner.account });
+
         return {
             owner,
             buyer,

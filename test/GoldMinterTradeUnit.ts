@@ -115,6 +115,13 @@ describe('GoldMinter TradeUnit', function () {
             account: owner.account,
         });
 
+        // The contract defaults were changed to 1kg units, but this test verifies various
+        // tradeUnit sizes (1g, 100g, 1kg), so revert the minimum values back to 1g basis.
+        await goldMinter.write.updateMinMintAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinRedeemAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFee([parseEther('0.01')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFeeAmount([parseEther('1')], { account: owner.account });
+
         // KYC + funds for buyer
         await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
         await USDT.write.transfer([buyer.account.address, parseUnits('10000000', 6)], {
@@ -809,6 +816,12 @@ describe('GoldMinter TradeUnit', function () {
             await goldMinter.write.grantRole([KYC_MANAGER_ROLE, owner.account.address], {
                 account: owner.account,
             });
+
+            // Revert the 1kg unit defaults back to 1g basis (same reason as the fixture above)
+            await goldMinter.write.updateMinMintAmount([parseEther('1')], { account: owner.account });
+            await goldMinter.write.updateMinRedeemAmount([parseEther('1')], { account: owner.account });
+            await goldMinter.write.updateMinGoldFee([parseEther('0.01')], { account: owner.account });
+            await goldMinter.write.updateMinGoldFeeAmount([parseEther('1')], { account: owner.account });
 
             await goldMinter.write.updateTradeUnit([TRADE_UNIT_1KG], { account: owner.account });
             await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });

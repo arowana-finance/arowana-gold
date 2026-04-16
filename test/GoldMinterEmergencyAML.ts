@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { parseUnits, maxUint256, getAddress, encodeFunctionData } from 'viem';
+import { parseUnits, parseEther, maxUint256, getAddress, encodeFunctionData } from 'viem';
 import { getClients, signPermitERC2612 } from './helpers.js';
 
 const GOLD_PRICE = parseUnits('4198.21', 8); // Oracle price (per ounce)
@@ -156,6 +156,13 @@ describe('GoldMinter - Emergency Pause & AML', function () {
         await USDC.write.approve([goldMinter.address, maxUint256], {
             account: owner.account,
         });
+
+        // The contract defaults were changed to 1kg units, but these tests assume
+        // gram-denominated amounts, so we revert the minimum values back to a 1g basis in the fixture.
+        await goldMinter.write.updateMinMintAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinRedeemAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFee([parseEther('0.01')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFeeAmount([parseEther('1')], { account: owner.account });
 
         return {
             owner,

@@ -72,8 +72,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         IGoldMinter.BurnOrder[] burnOrders;
         IGoldMinter.Levels tradeLevel;
         uint16 slippage;
-        uint16 mintSpread;      // Spread for mint (e.g., 75 = 0.75%)
-        uint16 redeemSpread;    // Spread for redeem (e.g., 75 = 0.75%)
+        uint16 mintSpread;      // Spread for mint (e.g., 150 = 1.5%)
+        uint16 redeemSpread;    // Spread for redeem (e.g., 150 = 1.5%)
         uint16 mintFee;         // Fee for mint (e.g., 25 = 0.25%)
         uint16 redeemFee;       // Fee for redeem (e.g., 25 = 0.25%)
         uint256 minMintAmount;  // Minimum gold amount for mint (e.g., 1 ether = 1 gram)
@@ -195,8 +195,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
         $.goldPriceFeed = IPriceFeed(_goldPriceFeed);
 
         $.slippage = 500; // 5%
-        $.mintSpread = 75; // 0.75%
-        $.redeemSpread = 75; // 0.75%
+        $.mintSpread = 150; // 1.5%
+        $.redeemSpread = 150; // 1.5%
         $.mintFee = 25; // 0.25%
         $.redeemFee = 25; // 0.25%
         $.minMintAmount = 1000 ether; // 1kg

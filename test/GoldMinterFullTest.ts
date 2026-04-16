@@ -172,6 +172,13 @@ describe('GoldMinter Full Test - Burn Settlement & Security', function () {
             account: owner.account,
         });
 
+        // The contract defaults were changed to 1kg units, but these tests assume gram-based
+        // amounts, so in this fixture we reset the minimum values back to a 1g basis.
+        await goldMinter.write.updateMinMintAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinRedeemAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFee([parseEther('0.01')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFeeAmount([parseEther('1')], { account: owner.account });
+
         // Return all objects needed for testing
         return {
             owner, // Admin/Treasury account

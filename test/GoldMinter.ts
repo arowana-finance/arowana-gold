@@ -151,6 +151,13 @@ describe('GoldMinter', function () {
             account: owner.account,
         });
 
+        // The contract defaults were changed to 1kg units, but these tests assume gram-unit amounts,
+        // so the fixture reverts the minimum values back to a 1g basis.
+        await goldMinter.write.updateMinMintAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinRedeemAmount([parseEther('1')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFee([parseEther('0.01')], { account: owner.account });
+        await goldMinter.write.updateMinGoldFeeAmount([parseEther('1')], { account: owner.account });
+
         return {
             owner,
             buyer,
@@ -211,8 +218,8 @@ describe('GoldMinter', function () {
         expect(await goldPriceFeed.read.latestAnswer()).to.equal(GOLD_PRICE);
 
         expect(await goldMinter.read.slippage()).to.equal(500);
-        expect(await goldMinter.read.mintSpread()).to.equal(75);
-        expect(await goldMinter.read.redeemSpread()).to.equal(75);
+        expect(await goldMinter.read.mintSpread()).to.equal(150);
+        expect(await goldMinter.read.redeemSpread()).to.equal(150);
         expect(await goldMinter.read.mintFee()).to.equal(25);
         expect(await goldMinter.read.redeemFee()).to.equal(25);
     });
@@ -220,9 +227,9 @@ describe('GoldMinter', function () {
     it('getGoldAmount', async function () {
         const { USDT, goldMinter } = await fixture();
 
-        // With 0.75% mint spread, price is 1.0075x higher, so we get less gold
-        // Expected gold = 1 / 1.0075 ≈ 0.9925558...
-        const expectedGoldWithSpread = (Number(parseEther('1')) * 10000) / 10075;
+        // With 1.5% mint spread, price is 1.015x higher, so we get less gold
+        // Expected gold = 1 / 1.015 ≈ 0.9852217...
+        const expectedGoldWithSpread = (Number(parseEther('1')) * 10000) / 10150;
         const result1 = await goldMinter.read.getGoldAmount([USDT.address, GOLD_PRICE_IN_USD_TOKEN]);
         expect(Number(result1)).to.be.closeTo(expectedGoldWithSpread, Number(parseEther('0.001'))); // Allow tolerance for spread
 
@@ -233,9 +240,9 @@ describe('GoldMinter', function () {
     it('getUsdAmount', async function () {
         const { USDT, goldMinter } = await fixture();
 
-        // With 0.75% redeem spread, price is 0.9925x lower, so we get less USD
-        // Expected USD = price * 0.9925
-        const expectedUsdWithSpread = (GOLD_PRICE_IN_USD_TOKEN * 9925n) / 10000n;
+        // With 1.5% redeem spread, price is 0.985x lower, so we get less USD
+        // Expected USD = price * 0.985
+        const expectedUsdWithSpread = (GOLD_PRICE_IN_USD_TOKEN * 9850n) / 10000n;
         const actualUsd = (await goldMinter.read.getUsdAmount([USDT.address, parseEther('1')])) as bigint;
         // Allow 1 wei tolerance due to rounding
         expect(Number(actualUsd)).to.be.closeTo(Number(expectedUsdWithSpread), 1);
@@ -446,12 +453,12 @@ describe('GoldMinter', function () {
         const totalFeePercentage = (totalFeesInUSD * 10000) / Number(usdAmount);
 
         // Total round-trip cost includes:
-        // - Mint spread: 0.75% (higher price to buy)
+        // - Mint spread: 1.5% (higher price to buy)
         // - Mint fee: 0.25%
-        // - Redeem spread: 0.75% (lower price to sell)
+        // - Redeem spread: 1.5% (lower price to sell)
         // - Redeem fee: 0.25%
-        // Total approximately: ~2% (spreads + fees combined)
-        expect(totalFeePercentage).to.be.closeTo(200, 20); // ~200bps = 2% with 20bps tolerance
+        // Total approximately: ~3.5% (spreads + fees combined)
+        expect(totalFeePercentage).to.be.closeTo(350, 20); // ~350bps = 3.5% with 20bps tolerance
         console.log(`Total round-trip cost correctly applied: ${totalFeePercentage / 100}% (spreads + fees)`);
         console.log(`Mint fee: $${feeValueInUSD / 1000000} USD`);
         console.log(`Burn fee: $${burnFeeInUSD / 1000000} USD`);
@@ -464,7 +471,7 @@ describe('GoldMinter', function () {
         );
 
         console.log(`\nMINT PROCESS:`);
-        console.log(`  Expected AGT (before fee, with 0.75% spread): ${Number(expectedAGT) / 1e18} AGT`);
+        console.log(`  Expected AGT (before fee, with 1.5% spread): ${Number(expectedAGT) / 1e18} AGT`);
         console.log(
             `  Mint fee: ${Number(expectedFee) / 1e18} AGT = $${feeValueInUSD / 1000000} USD (0.25%)`,
         );
@@ -478,9 +485,7 @@ describe('GoldMinter', function () {
         console.log(
             `  Burn fee: ${Number(actualAGTFeeReceived) / 1e18} AGT = $${burnFeeInUSD / 1000000} USD (0.25%)`,
         );
-        console.log(
-            `  User received back (with 0.75% spread): $${Number(actualUSDTReceived) / 1000000} USDT`,
-        );
+        console.log(`  User received back (with 1.5% spread): $${Number(actualUSDTReceived) / 1000000} USDT`);
         console.log(`  Remaining AGT after fee: ${Number(burnAmount - actualAGTFeeReceived) / 1e18} AGT`);
         console.log(
             `  Remaining AGT value verification: ${Number(burnAmount - actualAGTFeeReceived) / 1e18} AGT × $${Number(goldPrice) / 100000000 / 31.1034768} = $${(Number(burnAmount - actualAGTFeeReceived) * Number(goldPrice)) / (1e18 * 1e8 * 31.1034768)} USD`,
@@ -495,7 +500,7 @@ describe('GoldMinter', function () {
         );
 
         console.log(
-            `\nVERIFICATION COMPLETE: All fees/spreads calculated correctly (0.75% spread + 0.25% fee)`,
+            `\nVERIFICATION COMPLETE: All fees/spreads calculated correctly (1.5% spread + 0.25% fee)`,
         );
     });
 
@@ -568,23 +573,23 @@ describe('GoldMinter', function () {
             }
         });
 
-        it('should SUCCEED when minting 1g + 1.5% worth of USD (enough to cover spread + fee)', async function () {
+        it('should SUCCEED when minting 1g + 2% worth of USD (enough to cover spread + fee)', async function () {
             const { owner, buyer, goldToken, USDT, goldPriceFeed, goldMinter } = await fixture();
 
             await goldMinter.write.updateAutoSettle();
             await goldMinter.write.setLevel([buyer.account.address, 2], { account: owner.account });
 
-            // Calculate 1g + buffer to cover 0.75% spread + 0.25% fee = 1%
-            // Adding 1.5% buffer to ensure we cover everything
-            const bufferMultiplier = 1015n; // 1.015 = 101.5%
+            // Calculate 1g + buffer to cover 1.5% spread + 0.25% fee = 1.75%
+            // Adding 2% buffer to ensure we cover everything
+            const bufferMultiplier = 1020n; // 1.020 = 102%
             const usdAmountWithBuffer = (GOLD_PRICE_IN_USD_TOKEN * bufferMultiplier) / 1000n;
 
             const goldPrice = await goldPriceFeed.read.latestAnswer();
 
-            console.log(`\n=== MINIMUM MINT TEST (1g + 1.5% buffer for spread+fee) ===`);
+            console.log(`\n=== MINIMUM MINT TEST (1g + 2% buffer for spread+fee) ===`);
             console.log(`Gold price: $${Number(goldPrice) / 1e8} per ounce`);
             console.log(`1g price: $${Number(GOLD_PRICE_IN_USD_TOKEN) / 1e6} USD`);
-            console.log(`Depositing: $${Number(usdAmountWithBuffer) / 1e6} USD (1g + 1.5%)`);
+            console.log(`Depositing: $${Number(usdAmountWithBuffer) / 1e6} USD (1g + 2%)`);
 
             // Calculate expected values
             const expectedAGT = (await goldMinter.read.getGoldAmount([
@@ -594,7 +599,7 @@ describe('GoldMinter', function () {
             const expectedFee = (await goldMinter.read.calculateGoldFee([expectedAGT, true])) as bigint;
             const netAGT = expectedAGT - expectedFee;
 
-            console.log(`Expected AGT (before fee, with 0.75% spread): ${Number(expectedAGT) / 1e18} AGT`);
+            console.log(`Expected AGT (before fee, with 1.5% spread): ${Number(expectedAGT) / 1e18} AGT`);
             console.log(`Fee (0.25%): ${Number(expectedFee) / 1e18} AGT`);
             console.log(`Net AGT (after fee): ${Number(netAGT) / 1e18} AGT`);
             console.log(`Min required: 1.0 AGT`);
@@ -651,7 +656,7 @@ describe('GoldMinter', function () {
             // USD >= 1g_price * (10000 + spread) / 10000
 
             // Calculate minimum USD needed for gross >= 1g
-            const minUSDRequired = (GOLD_PRICE_IN_USD_TOKEN * (10000n + mintSpread) + 9999n) / 10000n;
+            const minUSDRequired = (GOLD_PRICE_IN_USD_TOKEN * (10000n + mintSpread) + 9999n) / 10000n + 1n;
 
             console.log(`\nMinimum USD to get gross 1g: $${Number(minUSDRequired) / 1e6} USD`);
             console.log(
@@ -1266,12 +1271,12 @@ describe('GoldMinter', function () {
         it('should allow owner to update mintSpread', async function () {
             const { owner, goldMinter } = await fixture();
 
-            // Initial value is 75 (0.75%)
-            expect(await goldMinter.read.mintSpread()).to.equal(75);
-
-            // Update to 150 (1.5%)
-            await goldMinter.write.updateMintSpread([150], { account: owner.account });
+            // Initial value is 150 (1.5%)
             expect(await goldMinter.read.mintSpread()).to.equal(150);
+
+            // Update to 75 (0.75%)
+            await goldMinter.write.updateMintSpread([75], { account: owner.account });
+            expect(await goldMinter.read.mintSpread()).to.equal(75);
 
             // Update to 0 (no spread)
             await goldMinter.write.updateMintSpread([0], { account: owner.account });
@@ -1285,8 +1290,8 @@ describe('GoldMinter', function () {
         it('should allow owner to update redeemSpread', async function () {
             const { owner, goldMinter } = await fixture();
 
-            // Initial value is 75 (0.75%)
-            expect(await goldMinter.read.redeemSpread()).to.equal(75);
+            // Initial value is 150 (1.5%)
+            expect(await goldMinter.read.redeemSpread()).to.equal(150);
 
             // Update to 200 (2%)
             await goldMinter.write.updateRedeemSpread([200], { account: owner.account });
@@ -1366,8 +1371,8 @@ describe('GoldMinter', function () {
 
             const usdAmount = parseUnits('1000', 6); // 1000 USDT
 
-            // Get gold amount with default spread (0.75%)
-            const goldWith75bps = await goldMinter.read.getGoldAmount([USDT.address, usdAmount]);
+            // Get gold amount with default spread (1.5%)
+            const goldWith150bps = await goldMinter.read.getGoldAmount([USDT.address, usdAmount]);
 
             // Update to 0% spread
             await goldMinter.write.updateMintSpread([0], { account: owner.account });
@@ -1378,19 +1383,19 @@ describe('GoldMinter', function () {
             const goldWith300bps = await goldMinter.read.getGoldAmount([USDT.address, usdAmount]);
 
             // With 0% spread, user gets more gold
-            expect((goldWith0bps as bigint) > (goldWith75bps as bigint)).to.be.true;
+            expect((goldWith0bps as bigint) > (goldWith150bps as bigint)).to.be.true;
 
             // With 3% spread, user gets less gold
-            expect((goldWith300bps as bigint) < (goldWith75bps as bigint)).to.be.true;
+            expect((goldWith300bps as bigint) < (goldWith150bps as bigint)).to.be.true;
 
             // Verify approximate ratios
-            // 0% vs 0.75%: goldWith0bps should be ~1.0075x goldWith75bps
-            const ratio0vs75 = (Number(goldWith0bps) / Number(goldWith75bps)) * 10000;
-            expect(ratio0vs75).to.be.closeTo(10075, 5); // ~1.0075x with small tolerance
+            // 0% vs 1.5%: goldWith0bps should be ~1.015x goldWith150bps
+            const ratio0vs150 = (Number(goldWith0bps) / Number(goldWith150bps)) * 10000;
+            expect(ratio0vs150).to.be.closeTo(10150, 5); // ~1.015x with small tolerance
 
-            // 3% vs 0.75%: goldWith300bps should be ~0.9778x goldWith75bps (10075/10300)
-            const ratio300vs75 = (Number(goldWith300bps) / Number(goldWith75bps)) * 10000;
-            expect(ratio300vs75).to.be.closeTo(9782, 5); // ~0.9782x with small tolerance
+            // 3% vs 1.5%: goldWith300bps should be ~0.9854x goldWith150bps (10150/10300)
+            const ratio300vs150 = (Number(goldWith300bps) / Number(goldWith150bps)) * 10000;
+            expect(ratio300vs150).to.be.closeTo(9854, 5); // ~0.9854x with small tolerance
         });
 
         it('should correctly affect getUsdAmount when redeemSpread changes', async function () {
@@ -1398,8 +1403,8 @@ describe('GoldMinter', function () {
 
             const goldAmount = parseEther('1'); // 1g gold
 
-            // Get USD amount with default spread (0.75%)
-            const usdWith75bps = await goldMinter.read.getUsdAmount([USDT.address, goldAmount]);
+            // Get USD amount with default spread (1.5%)
+            const usdWith150bps = await goldMinter.read.getUsdAmount([USDT.address, goldAmount]);
 
             // Update to 0% spread
             await goldMinter.write.updateRedeemSpread([0], { account: owner.account });
@@ -1410,19 +1415,19 @@ describe('GoldMinter', function () {
             const usdWith300bps = await goldMinter.read.getUsdAmount([USDT.address, goldAmount]);
 
             // With 0% spread, user gets more USD
-            expect((usdWith0bps as bigint) > (usdWith75bps as bigint)).to.be.true;
+            expect((usdWith0bps as bigint) > (usdWith150bps as bigint)).to.be.true;
 
             // With 3% spread, user gets less USD
-            expect((usdWith300bps as bigint) < (usdWith75bps as bigint)).to.be.true;
+            expect((usdWith300bps as bigint) < (usdWith150bps as bigint)).to.be.true;
 
             // Verify approximate ratios
-            // 0% vs 0.75%: usdWith0bps should be ~1.0076x usdWith75bps (9925 -> 10000)
-            const ratio0vs75 = (Number(usdWith0bps) / Number(usdWith75bps)) * 10000;
-            expect(ratio0vs75).to.be.closeTo(10076, 5);
+            // 0% vs 1.5%: usdWith0bps should be ~1.0152x usdWith150bps (9850 -> 10000)
+            const ratio0vs150 = (Number(usdWith0bps) / Number(usdWith150bps)) * 10000;
+            expect(ratio0vs150).to.be.closeTo(10152, 5);
 
-            // 3% vs 0.75%: usdWith300bps should be ~0.9773x usdWith75bps (9925 -> 9700)
-            const ratio300vs75 = (Number(usdWith300bps) / Number(usdWith75bps)) * 10000;
-            expect(ratio300vs75).to.be.closeTo(9773, 5);
+            // 3% vs 1.5%: usdWith300bps should be ~0.9848x usdWith150bps (9850 -> 9700)
+            const ratio300vs150 = (Number(usdWith300bps) / Number(usdWith150bps)) * 10000;
+            expect(ratio300vs150).to.be.closeTo(9848, 5);
         });
 
         it('should successfully update spread values and verify state changes', async function () {
@@ -1526,7 +1531,7 @@ describe('GoldMinter', function () {
             // GOLD_PRICE_IN_USD_TOKEN is already gram-based (1g = 1 AGT)
             // Add spread: usdAmount = 1g price × (1 + spread%), round up to ensure >= 1g
             const oneGramPrice = GOLD_PRICE_IN_USD_TOKEN;
-            const usdAmount = (oneGramPrice * BigInt(10000 + mintSpread) + 9999n) / 10000n;
+            const usdAmount = (oneGramPrice * BigInt(10000 + mintSpread) + 9999n) / 10000n + 1n;
 
             console.log(`\n[Mint exactly 1 AGT]`);
             console.log(`  1g base price: $${Number(oneGramPrice) / 1e6}`);
@@ -1685,8 +1690,8 @@ describe('GoldMinter', function () {
 
             const testCases = [
                 { spread: 0, fee: 25, desc: 'No spread, 0.25% fee' },
-                { spread: 75, fee: 25, desc: '0.75% spread, 0.25% fee (default)' },
-                { spread: 150, fee: 50, desc: '1.5% spread, 0.5% fee' },
+                { spread: 75, fee: 25, desc: '0.75% spread, 0.25% fee' },
+                { spread: 150, fee: 50, desc: '1.5% spread, 0.5% fee (default spread)' },
                 { spread: 300, fee: 100, desc: '3% spread, 1% fee (max)' },
             ];
 
@@ -1709,7 +1714,7 @@ describe('GoldMinter', function () {
             }
 
             // Restore defaults
-            await goldMinter.write.updateMintSpread([75], { account: owner.account });
+            await goldMinter.write.updateMintSpread([150], { account: owner.account });
             await goldMinter.write.updateMintFee([25], { account: owner.account });
 
             console.log('\n' + '='.repeat(60));
@@ -1823,7 +1828,7 @@ describe('GoldMinter', function () {
             }
 
             // Restore default spread
-            await goldMinter.write.updateMintSpread([75], { account: owner.account });
+            await goldMinter.write.updateMintSpread([150], { account: owner.account });
         });
 
         it('should verify fee changes when fee rate parameters change', async function () {
@@ -1947,8 +1952,8 @@ describe('GoldMinter', function () {
             expect(mintFeeAmount).to.equal(redeemFeeAmount);
 
             // Restore defaults
-            await goldMinter.write.updateMintSpread([75], { account: owner.account });
-            await goldMinter.write.updateRedeemSpread([75], { account: owner.account });
+            await goldMinter.write.updateMintSpread([150], { account: owner.account });
+            await goldMinter.write.updateRedeemSpread([150], { account: owner.account });
         });
 
         it('should verify complete mint flow with simplified fee calculation', async function () {
@@ -2142,14 +2147,14 @@ describe('GoldMinter', function () {
             const totalCostPercent = (totalCost / Number(initialUSD)) * 100;
 
             // Expected total cost breakdown (simplified formula):
-            // 1. Mint spread: user gets less AGT (pays higher price) - 0.75%
+            // 1. Mint spread: user gets less AGT (pays higher price) - 1.5%
             // 2. Mint fee: fee deducted from AGT - 0.25%
-            // 3. Redeem spread: user gets less USD (receives lower price) - 0.75%
+            // 3. Redeem spread: user gets less USD (receives lower price) - 1.5%
             // 4. Redeem fee: fee deducted from AGT - 0.25%
 
-            const mintSpreadCost = mintSpread / 100; // 0.75%
+            const mintSpreadCost = mintSpread / 100; // 1.5%
             const mintFeeCost = mintFee / 100; // 0.25% (simplified - no spread multiplier)
-            const redeemSpreadCost = redeemSpread / 100; // 0.75%
+            const redeemSpreadCost = redeemSpread / 100; // 1.5%
             const redeemFeeCost = redeemFee / 100; // 0.25% (simplified - no spread multiplier)
 
             console.log(`\n=== COST BREAKDOWN (SIMPLIFIED) ===`);
@@ -2163,8 +2168,8 @@ describe('GoldMinter', function () {
             console.log(`  Actual total: ${totalCostPercent.toFixed(4)}%`);
             console.log(`  Total USD cost: $${totalCost / 1e6}`);
 
-            // Verify total cost is approximately 2% (all spreads + fees combined)
-            expect(totalCostPercent).to.be.closeTo(2, 0.5); // ~2% with 0.5% tolerance
+            // Verify total cost is approximately 3.5% (all spreads + fees combined)
+            expect(totalCostPercent).to.be.closeTo(3.5, 0.5); // ~3.5% with 0.5% tolerance
         });
     });
 
