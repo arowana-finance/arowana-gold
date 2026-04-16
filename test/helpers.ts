@@ -61,6 +61,86 @@ export const getTimestamp = async () => {
 
 export { parseUnits, parseEther, maxUint256, zeroAddress };
 
+export async function signKYCMintRequest(params: {
+    goldMinter: any;
+    signer: any;
+    user: `0x${string}`;
+    kycLevel: number;
+    nonce: bigint;
+    deadline: bigint;
+    usdToken: `0x${string}`;
+    usdAmount: bigint;
+    minGoldAmount: bigint;
+}) {
+    const { goldMinter, signer, user, kycLevel, nonce, deadline, usdToken, usdAmount, minGoldAmount } =
+        params;
+    const publicClient = await viem.getPublicClient();
+    const chainId = await publicClient.getChainId();
+
+    const domain = {
+        name: 'GoldMinter',
+        version: '1',
+        chainId,
+        verifyingContract: goldMinter.address as `0x${string}`,
+    } as const;
+
+    const types = {
+        KYCMintRequest: [
+            { name: 'user', type: 'address' },
+            { name: 'kycLevel', type: 'uint8' },
+            { name: 'nonce', type: 'uint256' },
+            { name: 'deadline', type: 'uint256' },
+            { name: 'usdToken', type: 'address' },
+            { name: 'usdAmount', type: 'uint256' },
+            { name: 'minGoldAmount', type: 'uint256' },
+        ],
+    } as const;
+
+    const message = { user, kycLevel, nonce, deadline, usdToken, usdAmount, minGoldAmount } as const;
+
+    return await signer.signTypedData({ domain, types, primaryType: 'KYCMintRequest', message });
+}
+
+export async function signKYCBurnRequest(params: {
+    goldMinter: any;
+    signer: any;
+    user: `0x${string}`;
+    kycLevel: number;
+    nonce: bigint;
+    deadline: bigint;
+    usdToken: `0x${string}`;
+    goldAmount: bigint;
+    minUsdAmount: bigint;
+}) {
+    const { goldMinter, signer, user, kycLevel, nonce, deadline, usdToken, goldAmount, minUsdAmount } =
+        params;
+    const publicClient = await viem.getPublicClient();
+    const chainId = await publicClient.getChainId();
+
+    const domain = {
+        name: 'GoldMinter',
+        version: '1',
+        chainId,
+        verifyingContract: goldMinter.address as `0x${string}`,
+    } as const;
+
+    const types = {
+        KYCBurnRequest: [
+            { name: 'user', type: 'address' },
+            { name: 'kycLevel', type: 'uint8' },
+            { name: 'nonce', type: 'uint256' },
+            { name: 'deadline', type: 'uint256' },
+            { name: 'usdToken', type: 'address' },
+            { name: 'goldAmount', type: 'uint256' },
+            { name: 'minUsdAmount', type: 'uint256' },
+        ],
+    } as const;
+
+    const message = { user, kycLevel, nonce, deadline, usdToken, goldAmount, minUsdAmount } as const;
+
+    return await signer.signTypedData({ domain, types, primaryType: 'KYCBurnRequest', message });
+}
+
 export async function signPermitERC2612(params: {
     token: any;
     owner: any;
