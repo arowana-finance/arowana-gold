@@ -29,6 +29,7 @@ library Errors {
 
     // ============ Parameter Validation Errors ============
     error Overflow();
+    error FeeExceedsMinimum();
 
     // ============ Access Control Errors ============
     // Note: onlyOwner, onlySettlers errors are handled by OpenZeppelin's Ownable/AccessControl

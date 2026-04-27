@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import { AccessControlEnumerableUpgradeable } from '@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol';
 import { IBlacklistOracle } from '../interfaces/IBlacklistOracle.sol';
 import { InitializableERC20 } from './InitializableERC20.sol';
+import { Errors } from '../libraries/Errors.sol';
 
 /// @notice ERC20 pegged with gold reserves
 /// @dev Uses standard OpenZeppelin ERC20 implementation
@@ -48,6 +49,7 @@ contract GoldToken is InitializableERC20, AccessControlEnumerableUpgradeable {
 	// ============ Initializer ============
 
     function initializeGoldToken(address _initOwner, address _blacklistOracle) public initializer {
+        if (_initOwner == address(0)) revert Errors.ZeroOwner();
         initializeToken('Ontorium Gold Token', 'OXAU', 18, 0);
 		__AccessControl_init();
 

@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import { EnumerableSet } from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
 import { Ownable } from './libraries/Ownable.sol';
+import { Errors } from './libraries/Errors.sol';
 
 /**
  * @title On-chain Blacklist Oracle Contract
@@ -44,6 +45,7 @@ contract BlacklistOracle is Ownable {
 	// ============ Initializer ============
 
     function initializeOracle(string memory _name, address _initOwner) public initializer {
+        if (_initOwner == address(0)) revert Errors.ZeroOwner();
         BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
 
         $._name = _name;

@@ -8,6 +8,7 @@ import { EIP712Upgradeable } from '@openzeppelin/contracts-upgradeable/utils/cry
 import { AccessControlUpgradeable } from '@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol';
 import { ECDSA } from '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 import { IERC20Exp, IERC20Mintable } from './interfaces/IERC20.sol';
+import { IBlacklistOracle } from './interfaces/IBlacklistOracle.sol';
 import { IPriceFeed } from './interfaces/IPriceFeed.sol';
 import { IGoldMinter } from './interfaces/IGoldMinter.sol';
 import { SigLib } from './libraries/SigLib.sol';
@@ -356,24 +357,30 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
     function updateMinMintAmount(uint256 _minMintAmount) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
+        _validateFeeVsMinimum($.minGoldFee, _minMintAmount);
         $.minMintAmount = _minMintAmount;
         emit UpdateMinMintAmount(_minMintAmount);
     }
 
     function updateMinRedeemAmount(uint256 _minRedeemAmount) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
+        _validateFeeVsMinimum($.minGoldFee, _minRedeemAmount);
         $.minRedeemAmount = _minRedeemAmount;
         emit UpdateMinRedeemAmount(_minRedeemAmount);
     }
 
     function updateMinGoldFee(uint256 _minGoldFee) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
+        _validateFeeVsMinimum(_minGoldFee, $.minMintAmount);
+        _validateFeeVsMinimum(_minGoldFee, $.minRedeemAmount);
+        if ($.tradeUnit > 0) _validateFeeVsMinimum(_minGoldFee, $.tradeUnit);
         $.minGoldFee = _minGoldFee;
         emit UpdateMinGoldFee(_minGoldFee);
     }
 
     function updateMinGoldFeeAmount(uint256 _minGoldFeeAmount) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
+        _validateFeeVsMinimum($.minGoldFee, _minGoldFeeAmount);
         $.minGoldFeeAmount = _minGoldFeeAmount;
         emit UpdateMinGoldFeeAmount(_minGoldFeeAmount);
     }
@@ -406,6 +413,7 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
     function updateTradeUnit(uint256 _tradeUnit) external onlyRole(PARAMETER_MANAGER_ROLE) {
         GoldMinterStorage storage $ = _getGoldMinterStorage();
+        if (_tradeUnit > 0) _validateFeeVsMinimum($.minGoldFee, _tradeUnit);
         $.tradeUnit = _tradeUnit;
         emit UpdateTradeUnit(_tradeUnit);
     }
@@ -829,7 +837,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         if (mintNonce >= $.mintOrders.length) revert Errors.InvalidNonce();
         if ($.mintOrders[mintNonce].isSettled) revert Errors.AlreadySettled();
-		if ($.amlBlacklist[$.mintOrders[mintNonce].buyer]) revert Errors.AMLBlocked();
+		address buyer_ = $.mintOrders[mintNonce].buyer;
+		_validateSettlementPermissions($, buyer_);
 
 		uint256 feeAmount = $.mintOrders[mintNonce].feeAmount;
   		uint256 netGoldAmount = goldAmount - feeAmount;
@@ -867,7 +876,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
 
         if (burnNonce >= $.burnOrders.length) revert Errors.InvalidNonce();
         if ($.burnOrders[burnNonce].isSettled) revert Errors.AlreadySettled();
-		if ($.amlBlacklist[$.burnOrders[burnNonce].seller]) revert Errors.AMLBlocked();
+		address seller_ = $.burnOrders[burnNonce].seller;
+		_validateSettlementPermissions($, seller_);
 
         IERC20Exp usdToken = IERC20Exp($.burnOrders[burnNonce].usdToken);
         uint256 goldAmount = $.burnOrders[burnNonce].goldAmount;
@@ -913,6 +923,8 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     ) internal view {
         if ($.levels[msg.sender] < uint(requiredLevel)) revert Errors.Underlevel();
         if ($.amlBlacklist[msg.sender]) revert Errors.AMLBlocked();
+        IBlacklistOracle oracle = $.goldToken.blacklistOracle();
+        if (address(oracle) != address(0) && oracle.isBlacklisted(msg.sender)) revert Errors.AMLBlocked();
     }
 
     /// @dev Shared price params for mint-side calculations (getGoldAmount / getRequiredUsd)
@@ -936,6 +948,17 @@ contract GoldMinter is AccessControlUpgradeable, ReentrancyGuardUpgradeable, Pau
     /// @dev Common minimum amount validation
     function _validateMinimumAmount(uint256 amount, uint256 minRequired) internal pure {
         if (amount < minRequired) revert Errors.SmallAmount();
+    }
+
+    function _validateFeeVsMinimum(uint256 fee, uint256 minimum) internal pure {
+        if (fee >= minimum) revert Errors.FeeExceedsMinimum();
+    }
+
+    function _validateSettlementPermissions(GoldMinterStorage storage $, address user) internal view {
+        if ($.amlBlacklist[user]) revert Errors.AMLBlocked();
+        IBlacklistOracle oracle = $.goldToken.blacklistOracle();
+        if (address(oracle) != address(0) && oracle.isBlacklisted(user)) revert Errors.AMLBlocked();
+        if (uint8($.tradeLevel) > 0 && $.levels[user] < uint8($.tradeLevel)) revert Errors.Underlevel();
     }
 
     /// @dev Validate amount is a non-zero multiple of tradeUnit

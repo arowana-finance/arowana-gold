@@ -7,8 +7,11 @@ import { IERC20Permit } from '@openzeppelin/contracts/token/ERC20/extensions/IER
 
 interface IERC20Exp is IERC20Metadata, IERC20Permit {}
 
+import { IBlacklistOracle } from './IBlacklistOracle.sol';
+
 interface IERC20Mintable is IERC20Exp {
     function mint(address to, uint256 amount) external;
     function burn(uint256 value) external;
     function burnFrom(address account, uint256 amount) external;
+    function blacklistOracle() external view returns (IBlacklistOracle);
 }
