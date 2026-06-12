@@ -1,4 +1,4 @@
-# Arowana Gold
+# Ontorium Gold
 
 Bringing humanity's most trusted value on-chain backed by physical gold
 
