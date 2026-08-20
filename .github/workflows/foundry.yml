@@ -16,10 +16,13 @@ jobs:
 
       - uses: foundry-rs/foundry-toolchain@v1
 
-      - name: make verify (build + offline tests)
-        run: make verify
+      - name: build
+        run: forge build
 
-  # fork tests hit live Arbitrum VerifierProxy — manual/nightly only
+      - name: offline tests
+        run: forge test --no-match-path 'test/fork/*'
+
+  # fork tests hit the live Arbitrum VerifierProxy — manual trigger only
   fork:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -28,7 +31,7 @@ jobs:
         with:
           submodules: recursive
       - uses: foundry-rs/foundry-toolchain@v1
-      - name: make test-fork
-        run: make test-fork
+      - name: fork tests
+        run: forge test --match-path 'test/fork/*' --fork-url "$ARB_RPC" --evm-version prague
         env:
           ARB_RPC: ${{ secrets.ARB_RPC }}
