@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { DataFeed } from './DataFeed.sol';
-import { BaseFunctionsConsumer } from './BaseFunctionsConsumer.sol';
+import { DataFeed } from "./DataFeed.sol";
+import { BaseFunctionsConsumer } from "./BaseFunctionsConsumer.sol";
 
 /**
  * AGT Reserve Oracle powered by Chainlink Functions
@@ -38,7 +38,7 @@ contract AGTReserveFeed is DataFeed, BaseFunctionsConsumer {
         uint64 _maxBaseGasPrice,
         uint64 _updateInterval
     ) public virtual initializer {
-		_initializeFeed(_initOwner, _asset, _description);
+        _initializeFeed(_initOwner, _asset, _description);
         setInterval(_updateInterval);
         setUpkeep(_upkeepContract, _upkeepInterval, _upkeepRateInterval, _upkeepRateCap, _maxBaseGasPrice);
         _initializeConsumer(address(0), _router);
@@ -50,9 +50,9 @@ contract AGTReserveFeed is DataFeed, BaseFunctionsConsumer {
 
     function handleResponse(bytes memory response) internal override {
         uint64[] memory nums = splitBytes(response);
-        uint arrayLen = nums.length / 2;
+        uint256 arrayLen = nums.length / 2;
 
-        for (uint i; i < arrayLen; ++i) {
+        for (uint256 i; i < arrayLen; ++i) {
             uint64 answer = nums[i * 2];
             uint64 timestamp = nums[i * 2 + 1];
             int256 answerEncoded = int256(uint256(answer));
@@ -66,7 +66,7 @@ contract AGTReserveFeed is DataFeed, BaseFunctionsConsumer {
     }
 
     function splitBytes(bytes memory data) internal pure returns (uint64[] memory) {
-        require(data.length % 8 == 0, 'Data length must be divisible by chunk size');
+        require(data.length % 8 == 0, "Data length must be divisible by chunk size");
 
         uint256 numChunks = data.length / 8;
         uint64[] memory result = new uint64[](numChunks);

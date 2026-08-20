@@ -1,0 +1,37 @@
+name: foundry
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: build
+        run: forge build
+
+      - name: offline tests
+        run: forge test --no-match-path 'test/fork/*'
+
+  # fork tests hit the live Arbitrum VerifierProxy — manual trigger only
+  fork:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: fork tests
+        run: forge test --match-path 'test/fork/*' --fork-url "$ARB_RPC" --evm-version prague
+        env:
+          ARB_RPC: ${{ secrets.ARB_RPC }}

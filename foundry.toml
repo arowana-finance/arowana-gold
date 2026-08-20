@@ -1,0 +1,63 @@
+[profile.default]
+src = "contracts"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+cache = true
+
+# --- Solc ---
+# Pinned strict version. 0.8.28 satisfies every pragma on disk
+# (^0.8.10, ^0.8.19, ^0.8.20, ^0.8.28).
+solc_version = "0.8.28"
+auto_detect_solc = false
+
+# --- Optimizer ---
+optimizer = true
+optimizer_runs = 200
+via_ir = true                 # Data Streams report decoding overflows the legacy stack
+
+# --- EVM target ---
+evm_version = "prague"        # Foundry defaults to "prague"; pin to deploy target
+
+# --- FS permissions (tests/scripts may read captured reports / addresses) ---
+fs_permissions = [{ access = "read", path = "./" }]
+
+# T2 (docs/설계.md R5): lint scope = active contracts + script. The frozen legacy
+# push stack and PoR files (hard rule: untouchable) and test fixtures are excluded.
+# `block-timestamp` is excluded globally: freshness windows (GoldStreamVerifier)
+# and EIP-712 deadlines (GoldMinter) are the design itself; second-level validator
+# drift is absorbed by the applied spread (docs/설계.md D5).
+[lint]
+exclude_lints = ["block-timestamp"]
+ignore = [
+    "contracts/Lock.sol",
+    "contracts/oracles/AGTPriceFeed.sol",
+    "contracts/oracles/AGTReserveFeed.sol",
+    "contracts/oracles/BaseFunctionsConsumer.sol",
+    "contracts/oracles/DataFeed.sol",
+    "contracts/oracles/DataFeedAggregator.sol",
+    "contracts/oracles/FunctionsClient.sol",
+    "test/**/*.sol",
+]
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = true
+
+# Run coverage without IR (via_ir breaks/slows forge coverage)
+[profile.coverage]
+via_ir = false
+optimizer = false
+
+# T1 (docs/설계.md R5): AST + build-info + storage layout artifacts for the
+# OZ upgrades-core CLI (`make check-upgrade`). ERC-7201 namespaced structs are
+# invisible to `forge inspect storage-layout`, so the AST-aware CLI is the only
+# valid layout gate for this codebase. Separate out dir keeps the heavier
+# artifacts out of the fast default build.
+[profile.upgrade-check]
+out = "out-upgrade-check"
+build_info = true
+ast = true
+extra_output = ["storageLayout"]

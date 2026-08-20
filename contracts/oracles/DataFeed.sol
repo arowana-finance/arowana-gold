@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { WithSettler } from '../libraries/WithSettler.sol';
+import { WithSettler } from "../libraries/WithSettler.sol";
 
 /// @title Chainlink / AAVE Compatible Price / PoR Feed
 contract DataFeed is WithSettler {
@@ -35,20 +35,12 @@ contract DataFeed is WithSettler {
     /// @dev timestamp => answer
     mapping(uint256 => int256) public getTimestampAnswer;
 
-    function initializeFeed(
-        address _initOwner,
-        address _asset,
-        string memory _description
-    ) public virtual initializer {
+    function initializeFeed(address _initOwner, address _asset, string memory _description) public virtual initializer {
         _initializeFeed(_initOwner, _asset, _description);
     }
 
-    function _initializeFeed(
-        address _initOwner,
-        address _asset,
-        string memory _description
-    ) internal virtual {
-		_initializeSettler(_initOwner);
+    function _initializeFeed(address _initOwner, address _asset, string memory _description) internal virtual {
+        _initializeSettler(_initOwner);
         deploymentTimestamp = block.timestamp;
         version = 6;
         setAsset(_asset);
@@ -96,9 +88,7 @@ contract DataFeed is WithSettler {
         emit AnswerUpdated(newAnswer, newRound, newTimestamp);
     }
 
-    function getRoundData(
-        uint80 _roundId
-    )
+    function getRoundData(uint80 _roundId)
         public
         view
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)

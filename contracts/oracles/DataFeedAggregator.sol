@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { Ownable } from '../libraries/Ownable.sol';
+import { Ownable } from "../libraries/Ownable.sol";
 
 /**
  * DataFeed Interface acting as an EACAggregatorProxy and FeedRegistry
@@ -31,8 +31,8 @@ contract DataFeedAggregator is Ownable {
     mapping(uint16 => DataFeedAggregator) public phaseAggregators;
 
     function initialize(address _initOwner, address _aggregator) public virtual initializer {
-		__Ownable_init(_initOwner);
-		
+        __Ownable_init(_initOwner);
+
         if (_aggregator != address(0)) {
             proposeAggregator(_aggregator);
         }
@@ -116,9 +116,8 @@ contract DataFeedAggregator is Ownable {
     }
 
     function callAsset(address _aggregator) public view returns (address) {
-        (bool success, bytes memory returnData) = address(_aggregator).staticcall(
-            abi.encodeCall(DataFeedAggregator.asset, ())
-        );
+        (bool success, bytes memory returnData) =
+            address(_aggregator).staticcall(abi.encodeCall(DataFeedAggregator.asset, ()));
 
         // asset() is non standard so we just return zero address
         if (!success) {
