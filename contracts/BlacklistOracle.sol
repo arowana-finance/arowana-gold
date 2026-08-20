@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { EnumerableSet } from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
-import { Ownable } from './libraries/Ownable.sol';
+import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { Ownable2Step } from "./libraries/Ownable2Step.sol";
+import { Errors } from "./libraries/Errors.sol";
 
 /**
  * @title On-chain Blacklist Oracle Contract
  * @notice Address oracle similar to Chainalysis SanctionsList
  */
-contract BlacklistOracle is Ownable {
+contract BlacklistOracle is Ownable2Step {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // ============ Constants ============
@@ -36,19 +37,22 @@ contract BlacklistOracle is Ownable {
 
     // ============ Constructor ============
 
-	/// @custom:oz-upgrades-unsafe-allow constructor
-	constructor() {
-		_disableInitializers();
-	}
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
 
-	// ============ Initializer ============
+    // ============ Initializer ============
 
     function initializeOracle(string memory _name, address _initOwner) public initializer {
+        if (_initOwner == address(0)) revert Errors.ZeroOwner();
         BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
 
         $._name = _name;
 
-        _transferOwnership(_initOwner);
+        // Canonical parent init chain (upgrades-core error-001): behaviorally identical
+        // to the previous direct _transferOwnership, but keeps future OZ init logic.
+        __Ownable_init(_initOwner);
         emit BlacklistInitialized(_name);
     }
 
@@ -60,33 +64,27 @@ contract BlacklistOracle is Ownable {
 
     // ============ Public Functions ============
 
+    /// @dev Idempotent: already-listed addresses are skipped (EnumerableSet.add
+    ///      returns false) so an emergency batch never reverts wholesale on a
+    ///      single duplicate, persisting the rest of the entries.
     function addBlacklist(address[] memory _blacklist) public virtual onlyOwner {
         BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
 
-        for (uint i; i < _blacklist.length; ++i) {
-            address _black = _blacklist[i];
-
-            if ($._blacklist.contains(_black)) {
-                revert InvalidAddress(_black);
-            }
-
-            $._blacklist.add(_black);
+        for (uint256 i; i < _blacklist.length; ++i) {
+            $._blacklist.add(_blacklist[i]);
         }
 
         emit BlacklistAdded(_blacklist);
     }
 
+    /// @dev Idempotent: absent addresses are skipped (EnumerableSet.remove
+    ///      returns false) so a batch never reverts wholesale on a single
+    ///      already-absent entry.
     function removeBlacklist(address[] memory _blacklist) public virtual onlyOwner {
         BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
 
-        for (uint i; i < _blacklist.length; ++i) {
-            address _black = _blacklist[i];
-
-            if (!$._blacklist.contains(_black)) {
-                revert InvalidAddress(_black);
-            }
-
-            $._blacklist.remove(_black);
+        for (uint256 i; i < _blacklist.length; ++i) {
+            $._blacklist.remove(_blacklist[i]);
         }
 
         emit BlacklistRemoved(_blacklist);
@@ -97,15 +95,15 @@ contract BlacklistOracle is Ownable {
     }
 
     function areBlacklisted(address[] memory _addr) public view virtual returns (bool[] memory) {
-		BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
-		bool[] memory results = new bool[](_addr.length);
+        BlacklistOracleStorage storage $ = _getBlacklistOracleStorage();
+        bool[] memory results = new bool[](_addr.length);
 
-		for (uint i; i < _addr.length; ++i) {
-			results[i] = $._blacklist.contains(_addr[i]);
-		}
+        for (uint256 i; i < _addr.length; ++i) {
+            results[i] = $._blacklist.contains(_addr[i]);
+        }
 
-		return results;
-	}
+        return results;
+    }
 
     function getBlacklistCount() public view virtual returns (uint256) {
         return _getBlacklistOracleStorage()._blacklist.length();
@@ -116,7 +114,7 @@ contract BlacklistOracle is Ownable {
 
         address[] memory _blacklist = new address[](end - start);
 
-        for (uint i; i < _blacklist.length; ++i) {
+        for (uint256 i; i < _blacklist.length; ++i) {
             _blacklist[i] = $._blacklist.at(i + start);
         }
 
@@ -124,7 +122,7 @@ contract BlacklistOracle is Ownable {
     }
 
     // ============ Internal Functions ============
-	
+
     function _getBlacklistOracleStorage() internal pure returns (BlacklistOracleStorage storage $) {
         assembly {
             $.slot := BlacklistOracleStorageLocation

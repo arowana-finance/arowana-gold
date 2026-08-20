@@ -26,18 +26,32 @@ library Errors {
     // ============ Order Management Errors ============
     error InvalidNonce();
     error AlreadySettled();
+    error NotBlocked();
+    error MustReturnToOwner();
+    error NotExpired();
+    error NotOrderOwner();
+    error InvalidOrderTTL();
 
     // ============ Parameter Validation Errors ============
     error Overflow();
+    error FeeExceedsMinimum();
 
     // ============ Access Control Errors ============
-    // Note: onlyOwner, onlySettlers errors are handled by OpenZeppelin's Ownable/AccessControl
+    // onlyOwner, onlySettlers errors come from OpenZeppelin's Ownable/AccessControl
+    error RenounceDisabled();
+    error NotProxyAdmin();
 
     // ============ Signature Errors ============
     error InvalidSignature();
     error ExpiredSignature();
     error InvalidNonceSignature();
     error ZeroSignature();
+    error InsufficientAllowance();
+
+    // ============ Trade Window (business-hours gate) Errors ============
+    error TradeWindowClosed(); // block.timestamp outside [validAfter, validBefore]
+    error InvalidTradeWindowSigner(); // recovered signer lacks KYC_MANAGER_ROLE
+    error TradeWindowNonceUsed(); // unordered nonce already consumed
 
     // ============ Oracle Errors ============
     error InvalidPrice();
@@ -47,6 +61,22 @@ library Errors {
     error InvalidOraclePrice();
     error OracleTooStale();
     error PriceChangeTooLarge();
+
+    // ============ Data Streams Errors ============
+    error ReportExpired();
+    error ReportTooOld();
+    error ReportNotYetValid();
+    error MarketClosed();
+    error StaleReport();
+    error InvalidReportFeed();
+    error InvalidReportVersion();
+    error InvalidReportDecimals();
+    error NotGoldMinter();
+    error ZeroVerifier();
+    error ZeroLinkToken();
+    error ZeroFeedId();
+    error ZeroGoldMinter();
+    error VerifierAlreadySet();
 
     // ============ Token Errors ============
     error InvalidUSDToken();

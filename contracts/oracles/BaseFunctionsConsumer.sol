@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { AutomationCompatible } from '@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol';
-import { WithSettler } from '../libraries/WithSettler.sol';
-import { FunctionsClient } from './FunctionsClient.sol';
+import { AutomationCompatible } from "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
+import { WithSettler } from "../libraries/WithSettler.sol";
+import { FunctionsClient } from "./FunctionsClient.sol";
 
 /**
  * @title Functions Consumer contract used for Chainlink Automation.
@@ -47,7 +47,7 @@ contract BaseFunctionsConsumer is FunctionsClient, AutomationCompatible, WithSet
      * @notice Reverts if called by anyone other than the contract owner or automation registry.
      */
     modifier onlyUpkeep() {
-        require(msg.sender == owner() || msg.sender == upkeepContract, 'NotAllowedCaller');
+        require(msg.sender == owner() || msg.sender == upkeepContract, "NotAllowedCaller");
         _;
     }
 
@@ -78,13 +78,7 @@ contract BaseFunctionsConsumer is FunctionsClient, AutomationCompatible, WithSet
         upkeepRateCap = _upkeepRateCap;
         maxBaseGasPrice = _maxBaseGasPrice;
 
-        emit SetUpkeep(
-            _upkeepContract,
-            _upkeepInterval,
-            _upkeepRateInterval,
-            _upkeepRateCap,
-            _maxBaseGasPrice
-        );
+        emit SetUpkeep(_upkeepContract, _upkeepInterval, _upkeepRateInterval, _upkeepRateCap, _maxBaseGasPrice);
     }
 
     /// @notice Update the request settings
@@ -93,12 +87,10 @@ contract BaseFunctionsConsumer is FunctionsClient, AutomationCompatible, WithSet
     /// @param _subscriptionId The new subscription ID to be set
     /// @param _gasLimit The new gas limit to be set
     /// @param _donID The new job ID to be set
-    function updateRequest(
-        bytes memory _request,
-        uint64 _subscriptionId,
-        uint32 _gasLimit,
-        bytes32 _donID
-    ) public onlyOwner {
+    function updateRequest(bytes memory _request, uint64 _subscriptionId, uint32 _gasLimit, bytes32 _donID)
+        public
+        onlyOwner
+    {
         request = _request;
         subscriptionId = _subscriptionId;
         gasLimit = _gasLimit;
@@ -127,11 +119,24 @@ contract BaseFunctionsConsumer is FunctionsClient, AutomationCompatible, WithSet
 
     function checkUpkeep(
         bytes calldata /* checkData */
-    ) external view override returns (bool upkeepNeeded, bytes memory /* performData */) {
+    )
+        external
+        view
+        override
+        returns (
+            bool upkeepNeeded,
+            bytes memory /* performData */
+        )
+    {
         return (_checkUpkeepCondition(), new bytes(0));
     }
 
-    function performUpkeep(bytes calldata /* performData */) external override {
+    function performUpkeep(
+        bytes calldata /* performData */
+    )
+        external
+        override
+    {
         if (_checkUpkeepCondition()) {
             lastUpkeep = uint64(block.timestamp);
             s_lastRequestId = _sendRequest(request, subscriptionId, gasLimit, donID);
@@ -147,7 +152,7 @@ contract BaseFunctionsConsumer is FunctionsClient, AutomationCompatible, WithSet
         return s_lastRequestId;
     }
 
-    function handleResponse(bytes memory response) internal virtual {}
+    function handleResponse(bytes memory response) internal virtual { }
 
     /**
      * @notice Store latest result/error

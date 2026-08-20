@@ -2,12 +2,9 @@
 pragma solidity ^0.8.20;
 
 interface IInitializableProxy {
-    function initializeProxy(
-        string memory _description,
-        address newAdmin,
-        address newImplementation,
-        bytes memory data
-    ) external payable;
+    function initializeProxy(string memory _description, address newAdmin, address newImplementation, bytes memory data)
+        external
+        payable;
 
     function changeAdmin(address newAdmin) external;
 

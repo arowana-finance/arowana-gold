@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.10;
 
-import { Proxy } from '@openzeppelin/contracts/proxy/Proxy.sol';
-import { ERC1967Utils, IERC1967, StorageSlot } from '@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol';
+import { Proxy } from "@openzeppelin/contracts/proxy/Proxy.sol";
+import { ERC1967Utils, IERC1967, StorageSlot } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
 /**
  * @title InitializableProxy
@@ -12,13 +12,12 @@ import { ERC1967Utils, IERC1967, StorageSlot } from '@openzeppelin/contracts/pro
  */
 contract InitializableProxy is Proxy {
     // keccak256(abi.encodePacked('eip1967.proxy.description')) - 1n
-    bytes32 internal constant DESCRIPTION_SLOT =
-        0xfcba12fcf625f4823c7c0c86b97ab29721afc9e784836bc00bf04553a0c8dff4;
+    bytes32 internal constant DESCRIPTION_SLOT = 0xfcba12fcf625f4823c7c0c86b97ab29721afc9e784836bc00bf04553a0c8dff4;
 
     event DescriptionChanged(string description);
 
     modifier ifAdmin() {
-        require(msg.sender == _admin(), 'NOT_ADMIN');
+        require(msg.sender == _admin(), "NOT_ADMIN");
         _;
     }
 
@@ -26,13 +25,12 @@ contract InitializableProxy is Proxy {
         _fallback();
     }
 
-    function initializeProxy(
-        string memory _description,
-        address newAdmin,
-        address newImplementation,
-        bytes memory data
-    ) external payable virtual {
-        require(_implementation() == address(0) && _admin() == address(0), 'ALREADY_INITIALIZED');
+    function initializeProxy(string memory _description, address newAdmin, address newImplementation, bytes memory data)
+        external
+        payable
+        virtual
+    {
+        require(_implementation() == address(0) && _admin() == address(0), "ALREADY_INITIALIZED");
         ERC1967Utils.changeAdmin(newAdmin);
         _upgradeToAndCall(newImplementation, data);
         _setDescription(_description);

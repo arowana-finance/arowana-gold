@@ -11,7 +11,7 @@ library SigLib {
         if (signature.length == 65) {
             // ecrecover takes the signature parameters, and the only way to get them
             // currently is to use assembly.
-            assembly ('memory-safe') {
+            assembly ("memory-safe") {
                 r := mload(add(signature, 0x20))
                 s := mload(add(signature, 0x40))
                 v := byte(0, mload(add(signature, 0x60)))

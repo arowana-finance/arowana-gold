@@ -97,4 +97,24 @@ interface IGoldMinter {
         uint256 goldAmount;
         uint256 minUsdAmount;
     }
+
+    /**
+     * @dev EIP-712 structure for the business-hours trade window gate.
+     *      The backend (a KYC_MANAGER signer) issues one per request only while the
+     *      market is within Hong Kong business hours (holidays handled entirely
+     *      off-chain — no signature is issued when closed). On-chain we verify only:
+     *      the signer role, validAfter <= now <= validBefore, and an unused nonce.
+     *      No dates/holidays are stored on-chain. Time window is bound INTO the
+     *      signature (Permit2 pattern), so it cannot be replayed outside the window.
+     * @param user Address the window authorizes; must equal msg.sender.
+     * @param validAfter Unix time the window opens (business-hours start).
+     * @param validBefore Unix time the window closes (business-hours end = deadline).
+     * @param nonce Unordered (Permit2-style bitmap) nonce for single-use replay protection.
+     */
+    struct TradeWindow {
+        address user;
+        uint64 validAfter;
+        uint64 validBefore;
+        uint256 nonce;
+    }
 }
