@@ -28,7 +28,6 @@ import { GoldMinter } from "../contracts/GoldMinter.sol";
 ///        USDT, USDC      — stablecoin addresses
 ///        USD_RECIPIENT   — treasury that receives deposited USD
 ///        FEE_RECIPIENT   — recipient of protocol fee gold
-///      Onboarding gate (CLAUDE.md §6): FEED_ID / VERIFIER_PROXY must be the
 ///      confirmed live values before mainnet deployment.
 contract Deploy is SafeScript {
     function run() external {

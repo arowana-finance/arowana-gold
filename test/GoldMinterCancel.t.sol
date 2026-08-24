@@ -13,8 +13,7 @@ import { IVerifierProxy } from "../contracts/interfaces/IVerifierProxy.sol";
 import { MockGoldToken } from "./GoldMinterStreams.t.sol";
 
 /// @title GoldMinterCancelTest
-/// @notice R1 (docs/설계.md Q2, docs/테스트.md §7 T1~T10) — order TTL + owner self-cancel.
-///         Deploys with autoSettle=false to create pending orders and verify the escape hatch.
+/// @notice Deploys with autoSettle=false to create pending orders and verify the escape hatch.
 contract GoldMinterCancelTest is Test {
     using stdStorage for StdStorage;
 

@@ -7,8 +7,7 @@ import { ERC20Mock } from "../contracts/tokens/ERC20Mock.sol";
 import { GoldMinter } from "../contracts/GoldMinter.sol";
 
 /// @title QuoteMathProps
-/// @notice T2 (docs/설계.md R5, docs/테스트.md §8) — property-based fuzz of the quote math.
-///         Quote functions are pure views taking a verified price8, so the whole valid
+/// @notice Quote functions are pure views taking a verified price8, so the whole valid
 ///         price band can be fuzzed without oracle/report plumbing. Params = initialize defaults
 ///         (mintSpread/redeemSpread 1.5%, fee 0.25%, minGoldFee 2.5e18 / 1000e18).
 contract QuoteMathPropsTest is Test {
